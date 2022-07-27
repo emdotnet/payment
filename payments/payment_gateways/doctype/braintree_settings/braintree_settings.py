@@ -1,5 +1,6 @@
-# Copyright (c) 2018, Frappe Technologies and contributors
+# Copyright (c) 2021, Frappe Technologies and contributors
 # License: MIT. See LICENSE
+
 
 from urllib.parse import urlencode
 
@@ -7,14 +8,15 @@ import braintree
 
 import frappe
 from frappe import _
-from frappe.integrations.utils import create_request_log
-from frappe.model.document import Document
+from frappe.integrations.utils import (
+	PaymentGatewayController,
+	create_request_log,
+)
+from payments.utils import create_payment_gateway
 from frappe.utils import call_hook_method, get_url
 
-from payments.utils import create_payment_gateway
 
-
-class BraintreeSettings(Document):
+class BraintreeSettings(PaymentGatewayController):
 	supported_currencies = [
 		"AED",
 		"AMD",
@@ -153,6 +155,11 @@ class BraintreeSettings(Document):
 		"ZWD",
 	]
 
+	def __init__(self, *args, **kwargs):
+		super().__init__(*args, **kwargs)
+		if not self.is_new():
+			self.configure_braintree()
+
 	def validate(self):
 		if not self.flags.ignore_mandatory:
 			self.configure_braintree()
@@ -166,23 +173,32 @@ class BraintreeSettings(Document):
 		call_hook_method("payment_gateway_enabled", gateway="Braintree-" + self.gateway_name)
 
 	def configure_braintree(self):
-		if self.use_sandbox:
-			environment = "sandbox"
-		else:
-			environment = "production"
-
-		braintree.Configuration.configure(
-			environment=environment,
-			merchant_id=self.merchant_id,
-			public_key=self.public_key,
-			private_key=self.get_password(fieldname="private_key", raise_exception=False),
+		self.gateway = braintree.BraintreeGateway(
+			braintree.Configuration(
+				environment=braintree.Environment.Sandbox
+				if self.use_sandbox
+				else braintree.Environment.Production,
+				merchant_id=self.merchant_id,
+				public_key=self.public_key,
+				private_key=self.get_password(fieldname="private_key", raise_exception=False),
+			)
 		)
+
+	def generate_token(self, data=None):
+		if data:
+			self.data = frappe._dict(data)
+
+		try:
+			self.get_merchant_account()
+			return self.gateway.client_token.generate({"merchant_account_id": self.merchant_account.id})
+		except Exception as e:
+			frappe.log_error(e, _("Client token generation issue"))
 
 	def validate_transaction_currency(self, currency):
 		if currency not in self.supported_currencies:
 			frappe.throw(
 				_(
-					"Please select another payment method. Stripe does not support transactions in currency '{0}'"
+					"Please select another payment method. Braintree does not support transactions in currency '{0}'"
 				).format(currency)
 			)
 
@@ -208,17 +224,36 @@ class BraintreeSettings(Document):
 				"status": 401,
 			}
 
+	def get_merchant_account(self):
+		result = self.gateway.merchant_account.all()
+		matching_merchants = [
+			x for x in result.merchant_accounts if x.currency_iso_code == self.data.currency
+		]
+		default_merchant = [y for y in matching_merchants if y.default] if matching_merchants else []
+
+		if default_merchant:
+			self.merchant_account = default_merchant[0]
+		elif matching_merchants:
+			self.merchant_account = matching_merchants[0]
+
+		if not hasattr(self, "merchant_account"):
+			frappe.log_error(_(f"Merchant account for currency {self.data.currency} missing"))
+
 	def create_charge_on_braintree(self):
-		self.configure_braintree()
+		self.get_merchant_account()
+
+		if not hasattr(self, "merchant_account"):
+			return {"redirect_to": "payment-failed", "status": "Error"}
 
 		redirect_to = self.data.get("redirect_to") or None
 		redirect_message = self.data.get("redirect_message") or None
 
-		result = braintree.Transaction.sale(
+		result = self.gateway.transaction.sale(
 			{
 				"amount": self.data.amount,
 				"payment_method_nonce": self.data.payload_nonce,
 				"options": {"submit_for_settlement": True},
+				"merchant_account_id": self.merchant_account.id,
 			}
 		)
 
@@ -260,7 +295,7 @@ class BraintreeSettings(Document):
 				except Exception:
 					frappe.log_error(frappe.get_traceback())
 
-				if custom_redirect_to:
+				if custom_redirect_to and custom_redirect_to != "no-redirection":
 					redirect_to = custom_redirect_to
 
 			redirect_url = "payment-success"
@@ -268,13 +303,12 @@ class BraintreeSettings(Document):
 			status = "Error"
 			redirect_url = "payment-failed"
 
-		if redirect_to:
+		if redirect_to and redirect_to != "no-redirection":
 			redirect_url += "?" + urlencode({"redirect_to": redirect_to})
 		if redirect_message:
 			redirect_url += "&" + urlencode({"redirect_message": redirect_message})
 
 		return {"redirect_to": redirect_url, "status": status}
-
 
 def get_gateway_controller(doc):
 	payment_request = frappe.get_doc("Payment Request", doc)
@@ -282,11 +316,3 @@ def get_gateway_controller(doc):
 		"Payment Gateway", payment_request.payment_gateway, "gateway_controller"
 	)
 	return gateway_controller
-
-
-def get_client_token(doc):
-	gateway_controller = get_gateway_controller(doc)
-	settings = frappe.get_doc("Braintree Settings", gateway_controller)
-	settings.configure_braintree()
-
-	return braintree.ClientToken.generate()

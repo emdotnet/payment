@@ -1,55 +1,92 @@
 {
- "actions": [],
- "autoname": "field:gateway",
- "creation": "2022-01-24 21:09:47.229371",
- "doctype": "DocType",
- "editable_grid": 1,
- "engine": "InnoDB",
- "field_order": [
-  "gateway",
-  "gateway_settings",
-  "gateway_controller"
- ],
- "fields": [
-  {
-   "fieldname": "gateway",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Gateway",
-   "reqd": 1,
-   "unique": 1
-  },
-  {
-   "fieldname": "gateway_settings",
-   "fieldtype": "Link",
-   "label": "Gateway Settings",
-   "options": "DocType"
-  },
-  {
-   "fieldname": "gateway_controller",
-   "fieldtype": "Dynamic Link",
-   "label": "Gateway Controller",
-   "options": "gateway_settings"
-  }
- ],
- "links": [],
- "modified": "2022-07-24 21:17:03.864719",
- "modified_by": "Administrator",
- "module": "Payments",
- "name": "Payment Gateway",
- "naming_rule": "By fieldname",
- "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "read": 1,
-   "role": "System Manager",
-   "write": 1
-  }
- ],
- "quick_entry": 1,
- "sort_field": "modified",
- "sort_order": "DESC",
- "states": []
-}
+    "actions": [],
+    "autoname": "field:gateway",
+    "creation": "2015-12-15 22:26:45.221162",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+     "gateway",
+     "disabled",
+     "gateway_settings",
+     "gateway_controller",
+     "column_break_4",
+     "portal_section",
+     "title",
+     "column_break_9",
+     "icon"
+    ],
+    "fields": [
+     {
+      "fieldname": "gateway",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Gateway",
+      "reqd": 1,
+      "unique": 1
+     },
+     {
+      "fieldname": "gateway_settings",
+      "fieldtype": "Link",
+      "label": "Gateway Settings",
+      "options": "DocType"
+     },
+     {
+      "fieldname": "gateway_controller",
+      "fieldtype": "Dynamic Link",
+      "label": "Gateway Controller",
+      "options": "gateway_settings"
+     },
+     {
+      "fieldname": "column_break_4",
+      "fieldtype": "Column Break"
+     },
+     {
+      "default": "Credit Card",
+      "fieldname": "icon",
+      "fieldtype": "Select",
+      "label": "Portal Icon",
+      "options": "Credit Card\nWire Transfer"
+     },
+     {
+      "fieldname": "title",
+      "fieldtype": "Data",
+      "label": "Portal Title",
+      "translatable": 1
+     },
+     {
+      "fieldname": "portal_section",
+      "fieldtype": "Section Break",
+      "label": "Portal"
+     },
+     {
+      "fieldname": "column_break_9",
+      "fieldtype": "Column Break"
+     },
+     {
+      "default": "0",
+      "fieldname": "disabled",
+      "fieldtype": "Check",
+      "label": "Disabled"
+     }
+    ],
+    "in_create": 1,
+    "links": [],
+    "modified": "2020-08-18 12:09:22.723404",
+    "modified_by": "Administrator",
+    "module": "Core",
+    "name": "Payment Gateway",
+    "owner": "Administrator",
+    "permissions": [
+     {
+      "create": 1,
+      "delete": 1,
+      "read": 1,
+      "role": "System Manager",
+      "write": 1
+     }
+    ],
+    "quick_entry": 1,
+    "sort_field": "modified",
+    "sort_order": "DESC"
+   }
