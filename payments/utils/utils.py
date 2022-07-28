@@ -165,5 +165,6 @@ def delete_custom_fields():
 
 def before_install():
 	# only install for v14
-	if cint(frappe.get_module("frappe").__version__[:2]) < 14 or not frappe.get_meta("Module Def").has_field("custom"):
+	if cint(frappe.get_module("frappe").__version__[:2]) < 3 or not frappe.get_meta("Module Def").has_field("custom"):
+		print("This app requires Dodock v3 to be installed")
 		return False
