@@ -59,12 +59,12 @@ def make_custom_fields():
 
 		create_custom_fields({
 			'Web Form': [
-                {
-                    "fieldname": "payments_tab",
-                    "fieldtype": "Tab Break",
-                    "label": "Payments",
-                    "insert_after": "custom_css"
-                },
+				{
+					"fieldname": "payments_tab",
+					"fieldtype": "Tab Break",
+					"label": "Payments",
+					"insert_after": "custom_css"
+				},
 				{
 					"default": "0",
 					"fieldname": "accept_payment",

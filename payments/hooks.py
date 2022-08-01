@@ -98,6 +98,10 @@ override_doctype_class = {
 	"Web Form": "payments.overrides.payment_webform.PaymentWebForm"
 }
 
+webhooks_handler = {
+	"Stripe": "payments.payment_gateways.doctype.stripe_settings.stripe_settings.handle_webhooks"
+}
+
 # Document Events
 # ---------------
 # Hook on document methods and events
