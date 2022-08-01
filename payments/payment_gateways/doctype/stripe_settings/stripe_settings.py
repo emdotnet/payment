@@ -12,14 +12,14 @@ from frappe.utils import call_hook_method, cint, flt, get_url, getdate, nowdate
 from payments.utils import create_payment_gateway
 
 from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
-from payment.payment_gateways.doctype.stripe_settings.api import (
+from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
 	StripeInvoiceItem,
 	StripePaymentIntent,
 	StripePrice,
 	StripeWebhookEndpoint,
 )
-from payment.payment_gateways.doctype.stripe_settings.webhook_events import (
+from payments.payment_gateways.doctype.stripe_settings.webhook_events import (
 	StripeChargeWebhookHandler,
 	StripeInvoiceWebhookHandler,
 	StripePaymentIntentWebhookHandler,
@@ -178,7 +178,7 @@ class StripeSettings(PaymentGatewayController):
 		)
 
 	def cancel_subscription(self, **kwargs):
-		from payment.payment_gateways.doctype.stripe_settings.api import StripeSubscription
+		from payments.payment_gateways.doctype.stripe_settings.api import StripeSubscription
 
 		return StripeSubscription(self).cancel(
 			kwargs.get("subscription"),
@@ -267,7 +267,7 @@ def handle_webhooks(**kwargs):
 @frappe.whitelist()
 def create_delete_webhooks(settings, action="create"):
 	stripe_settings = frappe.get_doc("Stripe Settings", settings)
-	endpoint = "/api/method/payment.payment_gateways.doctype.stripe_settings.webhooks?account="
+	endpoint = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
 	url = f"{frappe.utils.get_url(endpoint)}{stripe_settings.name}"
 
 	if action == "create":

@@ -8,7 +8,7 @@ frappe.ui.form.on('Stripe Settings', {
 				__("Configure webhooks on your Stripe Dashboard"),
 				() => {
 					frappe.call({
-						method:"payment.payment_gateways.doctype.stripe_settings.stripe_settings.create_delete_webhooks",
+						method:"payments.payment_gateways.doctype.stripe_settings.stripe_settings.create_delete_webhooks",
 						args: {
 							settings: frm.doc.name,
 							action: "create"
@@ -37,7 +37,7 @@ frappe.ui.form.on('Stripe Settings', {
 				__("Delete webhooks configured on your Stripe Dashboard"),
 				() => {
 					frappe.call({
-						method:"payment.payment_gateways.doctype.stripe_settings.stripe_settings.create_delete_webhooks",
+						method:"payments.payment_gateways.doctype.stripe_settings.stripe_settings.create_delete_webhooks",
 						args: {
 							settings: frm.doc.name,
 							action: "delete"

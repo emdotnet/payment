@@ -34,7 +34,7 @@ def webhooks():
 	doc = create_new_integration_log(event, account)
 
 	frappe.enqueue(
-		method="payment.payment_gateways.doctype.stripe_settings.stripe_settings.handle_webhooks",
+		method="payments.payment_gateways.doctype.stripe_settings.stripe_settings.handle_webhooks",
 		queue="long",
 		timeout=600,
 		is_async=True,

@@ -9,7 +9,7 @@ from frappe.integrations.utils import get_gateway_controller
 from frappe.utils import cint, flt, fmt_money, get_datetime, getdate, nowdate
 
 from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
-from payment.payment_gateways.doctype.stripe_settings.api import (
+from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
 	StripeInvoice,
 	StripePaymentIntent,

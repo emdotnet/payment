@@ -1,6 +1,6 @@
 import frappe
 
-from payment.payment_gateways.doctype.stripe_settings.api.errors import handle_stripe_errors
+from payments.payment_gateways.doctype.stripe_settings.api.errors import handle_stripe_errors
 
 
 class StripePrice:

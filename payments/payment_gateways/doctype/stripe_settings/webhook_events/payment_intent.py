@@ -7,11 +7,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from payment.payment_gateways.doctype.stripe_settings.api import (
+from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeInvoice,
 	StripeSubscription,
 )
-from payment.payment_gateways.doctype.stripe_settings.webhook_events.stripe import (
+from payments.payment_gateways.doctype.stripe_settings.webhook_events.stripe import (
 	StripeWebhooksController,
 )
 

@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate
 
-from payment.payment_gateways.doctype.stripe_settings.api import StripeCharge, StripeInvoice
+from payments.payment_gateways.doctype.stripe_settings.api import StripeCharge, StripeInvoice
 from erpnext.erpnext_integrations.webhooks_controller import WebhooksController
 
 
