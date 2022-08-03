@@ -172,7 +172,7 @@ class StripeSettings(PaymentGatewayController):
 	def get_payment_url(self, **kwargs):
 		payment_key = {"key": kwargs.get("payment_key")}
 		return get_url(
-			"./integrations/stripe_checkout?{0}".format(
+			"./stripe_checkout?{0}".format(
 				urlencode(kwargs) if not kwargs.get("payment_key") else urlencode(payment_key)
 			)
 		)

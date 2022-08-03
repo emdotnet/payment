@@ -9,7 +9,7 @@ from .stripe import StripeWebhooksController
 class StripeChargeWebhookHandler(StripeWebhooksController):
 	def __init__(self, **kwargs):
 		super().__init__(**kwargs)
-		self.set_as_failed(
+		self.set_as_completed(
 			_(
 				"The Charge Webhook is no longer supported. Please add Payment Intent to your webhooks instead."
 			)
