@@ -126,7 +126,7 @@ scheduler_events = {
 # Testing
 # -------
 
-# before_tests = "pay.install.before_tests"
+before_tests = "payments.install.before_tests"
 
 # Overriding Methods
 # ------------------------------
