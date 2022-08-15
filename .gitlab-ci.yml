@@ -1,0 +1,66 @@
+stages:
+  - Unit Tests
+
+variables:
+  BASE_BRANCH: "develop"
+
+unittests:
+  image: "python:3.10-buster"
+
+  stage: Unit Tests
+
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "master"
+      variables:
+        BASE_BRANCH: "master"
+    - if: $CI_COMMIT_TAG == null
+
+  services:
+    - name: mariadb
+      command: ['mysqld', '--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci', '--character-set-client-handshake=FALSE', '--innodb_read_only_compressed=OFF']
+    - name: redis
+      alias: redis_queue
+    - name: redis
+      alias: redis_cache
+    - name: redis
+      alias: redis_socketio
+
+  variables:
+    MYSQL_DATABASE: "test_dodock"
+    MYSQL_ROOT_PASSWORD: "test_dodock"
+
+  before_script:
+    - apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-suggests --no-install-recommends mariadb-client xfonts-75dpi xfonts-base
+    - export LANG=C.UTF-8
+    - export LC_ALL=C.UTF-8
+    - export LANGUAGE=en_US.UTF-8
+    - wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.buster_amd64.deb
+    - dpkg -i wkhtmltox_0.12.6-1.buster_amd64.deb && rm wkhtmltox_0.12.6-1.buster_amd64.deb
+    - rm -rf /var/lib/apt/lists/*
+    - rm -rf /etc/apt/sources.list.d/*
+    - curl -sL https://deb.nodesource.com/setup_16.x | bash
+    - apt-get install -y nodejs
+    - npm install --global yarn
+    - export PATH=$PATH:/home/dokotest/.local/bin
+    - adduser --disabled-password --gecos "" dokotest
+    - usermod -aG sudo dokotest
+    - echo 'dokotest ALL=(ALL)  NOPASSWD:ALL' >> /etc/sudoers
+    - su -c "pip install dokos-cli" dokotest
+    - su -c "cd /home/dokotest && bench init dokos-bench --no-backups --skip-redis-config-generation --skip-assets --frappe-branch $BASE_BRANCH" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench get-app /builds/dokos/payments/" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench config set-common-config -c redis_queue redis://redis_queue:6379 -c redis_cache redis://redis_cache:6379 -c redis_socketio redis://redis_socketio:6379" dokotest
+    - su -c "cp -r /home/dokotest/dokos-bench/apps/frappe/test_sites/test_site /home/dokotest/dokos-bench/sites/" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && sed -i 's/^watch:/# watch:/g' Procfile"
+    - su -c "cd /home/dokotest/dokos-bench && sed -i 's/^schedule:/# schedule:/g' Procfile"
+    - su -c "cd /home/dokotest/dokos-bench && sed -i 's/^socketio:/# socketio:/g' Procfile"
+    - su -c "cd /home/dokotest/dokos-bench && sed -i 's/^redis_socketio:/# redis_socketio:/g' Procfile"
+    - su -c "cd /home/dokotest/dokos-bench && cat Procfile"
+    - su -c "cd /home/dokotest/dokos-bench && /home/dokotest/dokos-bench/env/bin/python -m pip install --quiet unittest-xml-reporting"
+    - su -c "cd /home/dokotest/dokos-bench && bench add-to-hosts" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench start &> bench_start.log &" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench --site test_site reinstall --yes --mariadb-root-password test_dodock" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench --site test_site install-app payments" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench build --app payments" dokotest
+
+  script:
+    - su -c "cd /home/dokotest/dokos-bench && bench --site test_site run-parallel-tests --app payments" dokotest
