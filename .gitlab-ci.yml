@@ -48,6 +48,7 @@ unittests:
     - su -c "pip install dokos-cli" dokotest
     - su -c "cd /home/dokotest && bench init dokos-bench --no-backups --skip-redis-config-generation --skip-assets --frappe-branch $BASE_BRANCH" dokotest
     - su -c "cd /home/dokotest/dokos-bench && bench get-app /builds/dokos/payments/" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench get-app https://gitlab.com/dokos/dokos.git --branch $BASE_BRANCH" dokotest # Added temporarily until this module is fully independant
     - su -c "cd /home/dokotest/dokos-bench && bench config set-common-config -c redis_queue redis://redis_queue:6379 -c redis_cache redis://redis_cache:6379 -c redis_socketio redis://redis_socketio:6379" dokotest
     - su -c "cp -r /home/dokotest/dokos-bench/apps/frappe/test_sites/test_site /home/dokotest/dokos-bench/sites/" dokotest
     - su -c "cd /home/dokotest/dokos-bench && sed -i 's/^watch:/# watch:/g' Procfile"
@@ -59,7 +60,7 @@ unittests:
     - su -c "cd /home/dokotest/dokos-bench && bench add-to-hosts" dokotest
     - su -c "cd /home/dokotest/dokos-bench && bench start &> bench_start.log &" dokotest
     - su -c "cd /home/dokotest/dokos-bench && bench --site test_site reinstall --yes --mariadb-root-password test_dodock" dokotest
-    - su -c "cd /home/dokotest/dokos-bench && bench --site test_site install-app payments" dokotest
+    - su -c "cd /home/dokotest/dokos-bench && bench --site test_site install-app dokos" dokotest
     - su -c "cd /home/dokotest/dokos-bench && bench build --app payments" dokotest
 
   script:

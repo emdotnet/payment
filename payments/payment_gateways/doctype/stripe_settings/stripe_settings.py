@@ -11,6 +11,7 @@ from frappe.integrations.utils import PaymentGatewayController
 from frappe.utils import call_hook_method, cint, flt, get_url, getdate, nowdate
 from payments.utils import create_payment_gateway
 
+# TODO: Move to hook
 from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
@@ -253,6 +254,7 @@ class StripeSettings(PaymentGatewayController):
 
 
 def handle_webhooks(**kwargs):
+	# TODO: Refactor implementation
 	from erpnext.erpnext_integrations.webhooks_controller import handle_webhooks as _handle_webhooks
 
 	WEBHOOK_HANDLERS = {

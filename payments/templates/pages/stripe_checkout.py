@@ -8,6 +8,7 @@ from frappe import _
 from frappe.integrations.utils import get_gateway_controller
 from frappe.utils import cint, flt, fmt_money, get_datetime, getdate, nowdate
 
+# TODO: Move to hook
 from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
@@ -157,6 +158,7 @@ def make_payment_intent(
 
 
 def create_payment_request(**kwargs):
+	# TODO: Refactor implementation
 	from erpnext.accounts.doctype.payment_request.payment_request import make_payment_request
 
 	return frappe.get_doc(
