@@ -180,7 +180,7 @@ def patch_erpnext_webhooks_url():
 		webhooks_list = StripeWebhookEndpoint(doc).get_all()
 		if doc.publishable_key and doc.secret_key and webhooks_list:
 			delete_webhooks(doc, url)
-			create_delete_webhooks("create")
+			create_delete_webhooks(doc, "create")
 
 def before_install():
 	# TODO: remove this
