@@ -192,6 +192,9 @@ class StripeSettings(PaymentGatewayController):
 			return False
 
 		customer = payment_request.get_customer()
+		if not customer:
+			return
+
 		stripe_customer_id = frappe.db.get_value(
 			"Integration References",
 			dict(customer=customer, stripe_settings=self.name),

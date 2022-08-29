@@ -29,6 +29,7 @@ expected_keys = (
 	"payer_email",
 	"order_id",
 	"currency",
+	"redirect_to"
 )
 
 
