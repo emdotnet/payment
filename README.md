@@ -1,31 +1,35 @@
 # Payments
 
-A payments app for frappe.
+Payments application for Dodock and Dokos
 
 ## Installation
-1. Install [bench & frappe](https://frappeframework.com/docs/v14/user/en/installation).
+1. Install [Dokos CLI & Dodock](https://doc.dokos.io/fr/getting-started).
 
 2. Once setup is complete, add the payments app to your bench by running
     ```
-    $ bench get-app payments
+    $ bench get-app payments --branch <version branch>
     ```
+
+> Example: If you want to use this application with Dodock/Dokos v3, you should use branch `v3.x.x`  
+> `$ bench get-app payments --branch v3.x.x`
+
 3. Install the payments app on the required site by running
     ```
     $ bench --site <sitename> install-app payments
     ```
 
-## App Structure & Details
-App has 2 modules - Payments and Payment Gateways.
+> Note: The application will be automatically installed if you install Dokos on your site.
 
-Payment Module contains the Payment Gateway DocType which creates links for the payment gateways and Payment Gateways Module contain all the Payment Gateway (Razorpay, Stripe, Braintree, Paypal, PayTM) DocTypes.
+## Content
 
-All general utils are stored in [utils](payments/utils) directory. The utils are written in [utils.py](payments/utils/utils.py) and then imported into the [`__init__.py`](payments/utils/__init__.py) file for easier importing/namespacing.
+This application contains integrations with the following payment gateways:
 
-[overrides](payments/overrides) directory has all the overrides for overriding standard frappe code. Currently it overrides WebForm DocType controller as well as a WebForm whitelisted method.
-
-[templates](payments/templates) directory has all the payment gateways' custom checkout pages.
-
-#
+- [Braintree](https://www.braintreepayments.com/)
+- [Paypal](https://www.paypal.com/)
+- [Paytm](https://paytm.com/)
+- [Razorpay](https://razorpay.com/)
+- [Stripe](https://stripe.com/)
 
 ## License
+
 MIT ([license.txt](license.txt))
