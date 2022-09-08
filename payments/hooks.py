@@ -64,7 +64,7 @@ app_license = "MIT"
 # ------------
 
 before_install = "payments.utils.before_install"
-after_install = "payments.utils.make_custom_fields"
+after_install = "payments.utils.after_install"
 
 # Uninstallation
 # ------------
@@ -98,6 +98,10 @@ override_doctype_class = {
 	"Web Form": "payments.overrides.payment_webform.PaymentWebForm"
 }
 
+webhooks_handler = {
+	"Stripe": "payments.payment_gateways.doctype.stripe_settings.stripe_settings.handle_webhooks"
+}
+
 # Document Events
 # ---------------
 # Hook on document methods and events
@@ -122,7 +126,7 @@ scheduler_events = {
 # Testing
 # -------
 
-# before_tests = "pay.install.before_tests"
+before_tests = "payments.install.before_tests"
 
 # Overriding Methods
 # ------------------------------
@@ -173,11 +177,3 @@ override_whitelisted_methods = {
 # auth_hooks = [
 # 	"pay.auth.validate"
 # ]
-
-# Translation
-# --------------------------------
-
-# Make link fields search translated document names for these DocTypes
-# Recommended only for DocTypes which have limited documents with untranslated names
-# For example: Role, Gender, etc.
-# translated_search_doctypes = []

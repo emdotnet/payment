@@ -38,7 +38,7 @@ def get_context(context):
 			payment_details["subscription_id"] if payment_details.get("subscription_id") else ""
 		)
 
-	except Exception as e:
+	except Exception:
 		frappe.redirect_to_message(
 			_("Invalid Token"),
 			_("Seems token you are using is invalid!"),
@@ -59,7 +59,9 @@ def get_api_key():
 
 
 @frappe.whitelist(allow_guest=True)
-def make_payment(razorpay_payment_id, options, reference_doctype, reference_docname, token):
+def make_payment(
+	razorpay_payment_id, options, reference_doctype, reference_docname, token
+):
 	data = {}
 
 	if isinstance(options, str):

@@ -2,7 +2,6 @@ import click
 
 import frappe
 from frappe import _
-from frappe.utils.data import cint
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 
@@ -53,6 +52,9 @@ def create_payment_gateway(gateway, settings=None, controller=None):
 		)
 		payment_gateway.insert(ignore_permissions=True)
 
+def after_install():
+	make_custom_fields()
+	patch_erpnext_webhooks_url()
 
 def make_custom_fields():
 	if not frappe.get_meta("Web Form").has_field("payments_tab"):
@@ -60,12 +62,12 @@ def make_custom_fields():
 
 		create_custom_fields({
 			'Web Form': [
-                {
-                    "fieldname": "payments_tab",
-                    "fieldtype": "Tab Break",
-                    "label": "Payments",
-                    "insert_after": "custom_css"
-                },
+				{
+					"fieldname": "payments_tab",
+					"fieldtype": "Tab Break",
+					"label": "Payments",
+					"insert_after": "custom_css"
+				},
 				{
 					"default": "0",
 					"fieldname": "accept_payment",
@@ -162,8 +164,32 @@ def delete_custom_fields():
 
 		frappe.clear_cache(doctype="Web Form")
 
+def patch_erpnext_webhooks_url():
+	# TODO: Remove this after v3
+	from payments.payment_gateways.doctype.stripe_settings.stripe_settings import create_delete_webhooks, delete_webhooks
+	from payments.payment_gateways.doctype.stripe_settings.api import StripeWebhookEndpoint
+
+	if frappe.conf.mute_payment_gateways:
+		return
+
+	for stripe_settings in frappe.get_all("Stripe Settings"):
+		print(f"Updating Webhook URL for Stripe settings: {stripe_settings.name}")
+		doc = frappe.get_doc("Stripe Settings", stripe_settings.name)
+		endpoint = "/api/method/erpnext.erpnext_integrations.doctype.stripe_settings.webhooks?account="
+		url = f"{frappe.utils.get_url(endpoint)}{stripe_settings.name}"
+		webhooks_list = StripeWebhookEndpoint(doc).get_all()
+		if doc.publishable_key and doc.secret_key and webhooks_list:
+			delete_webhooks(doc, url)
+			create_delete_webhooks(doc.name, "create")
 
 def before_install():
-	# only install for v14
-	if cint(frappe.get_module("frappe").__version__[:2]) < 14 or not frappe.get_meta("Module Def").has_field("custom"):
+	# TODO: remove this
+	# This is done for erpnext CI patch test
+	#
+	# Since we follow a flow like install v14 -> restore v10 site
+	# -> migrate to v12, v13 and then v14 again
+	#
+	# This app fails installing when the site is restored to v10 as
+	# a lot of apis don;t exist in v10 and this is a (at the moment) required app for erpnext.
+	if not frappe.get_meta("Module Def").has_field("custom"):
 		return False
