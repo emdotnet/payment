@@ -5,7 +5,6 @@
 from urllib.parse import urlencode
 
 import braintree
-
 import frappe
 from frappe import _
 from frappe.integrations.utils import (
