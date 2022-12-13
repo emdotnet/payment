@@ -225,12 +225,6 @@ class StripeSettings(PaymentGatewayController):
 				StripePaymentIntent(self, payment_request).create(
 					amount=cint(flt(payment_request.grand_total, payment_request.precision("grand_total")) * 100),
 					description=payment_request.subject,
-					statement_descriptor=(
-						frappe.db.get_value(
-							payment_request.reference_doctype, payment_request.reference_name, "company"
-						)
-						or payment_request.subject[:22]
-					),
 					currency=payment_request.currency,
 					customer=stripe_customer_id,
 					confirm=True,
