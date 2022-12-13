@@ -1,5 +1,4 @@
 import click
-
 import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
@@ -153,14 +152,11 @@ def delete_custom_fields():
 			"amount_field",
 			"amount_based_on_field",
 			"amount",
-			"currency"
+			"currency",
 		)
 
 		for fieldname in fieldnames:
-			frappe.db.delete(
-				"Custom Field",
-				{"name": "Web Form-" + fieldname}
-			)
+			frappe.db.delete("Custom Field", {"name": "Web Form-" + fieldname})
 
 		frappe.clear_cache(doctype="Web Form")
 

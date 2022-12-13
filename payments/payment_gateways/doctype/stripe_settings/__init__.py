@@ -75,7 +75,7 @@ def create_new_integration_log(event, account):
 	integration_request = frappe.get_doc(
 		{
 			"doctype": "Integration Request",
-			"integration_type": "Webhook",
+			"request_description": "Webhook",
 			"integration_request_service": "Stripe",
 			"service_document": event.type.split(".")[0],
 			"service_status": event.type.split(".")[1],
