@@ -1,7 +1,52 @@
 import click
+from urllib.parse import urlencode
+
 import frappe
 from frappe import _
+from frappe.model.document import Document
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+
+class PaymentGatewayController(Document):
+	def finalize_request(self, reference_no=None):
+		redirect_to = self.data.get("redirect_to")
+		redirect_message = self.data.get("redirect_message")
+
+		if (
+			self.flags.status_changed_to in ["Completed", "Autorized", "Pending"]
+			and self.reference_document
+		):
+			custom_redirect_to = None
+			try:
+				custom_redirect_to = self.reference_document.run_method(
+					"on_payment_authorized", self.flags.status_changed_to, reference_no
+				)
+			except Exception:
+				frappe.log_error(frappe.get_traceback(), _("Payment custom redirect error"))
+
+			if custom_redirect_to and custom_redirect_to != "no-redirection":
+				redirect_to = custom_redirect_to
+
+			redirect_url = self.redirect_url if self.get("redirect_url") else "/payment-success"
+
+		else:
+			redirect_url = "/payment-failed"
+
+		if redirect_to and redirect_to != "no-redirection":
+			redirect_url += "?" + urlencode({"redirect_to": redirect_to})
+		if redirect_message:
+			redirect_url += "&" + urlencode({"redirect_message": redirect_message})
+
+		return {"redirect_to": redirect_url, "status": self.integration_request.status}
+
+	def change_integration_request_status(self, status, error_type, error):
+		if hasattr(self, "integration_request"):
+			self.flags.status_changed_to = status
+			self.integration_request.db_set("status", status, update_modified=True)
+			self.integration_request.db_set(error_type, error, update_modified=True)
+
+		if hasattr(self, "update_reference_document_status"):
+			self.update_reference_document_status(status)
 
 
 def get_payment_gateway_controller(payment_gateway):
@@ -17,6 +62,14 @@ def get_payment_gateway_controller(payment_gateway):
 			return frappe.get_doc(gateway.gateway_settings, gateway.gateway_controller)
 		except Exception:
 			frappe.throw(_("{0} Settings not found").format(payment_gateway))
+
+
+def get_gateway_controller(doctype, docname):
+	reference_doc = frappe.get_doc(doctype, docname)
+	gateway_controller = frappe.db.get_value(
+		"Payment Gateway", reference_doc.payment_gateway, "gateway_controller"
+	)
+	return gateway_controller
 
 
 @frappe.whitelist(allow_guest=True, xss_safe=True)

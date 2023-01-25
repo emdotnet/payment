@@ -7,12 +7,10 @@ from urllib.parse import urlencode
 import frappe
 import stripe
 from frappe import _
-from frappe.integrations.utils import PaymentGatewayController
+from payments.utils.utils import PaymentGatewayController
 from frappe.utils import call_hook_method, cint, flt, get_url, getdate, nowdate
 from payments.utils import create_payment_gateway
 
-# TODO: Move to hook
-from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
 	StripeInvoiceItem,
@@ -162,6 +160,11 @@ class StripeSettings(PaymentGatewayController):
 			frappe.throw(_("Invalid currency for invoice item: {0} - {1}").format(item, currency))
 
 	def validate_next_invoice_date(self, subscription):
+		try:
+			from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
+		except ImportError:
+			return
+
 		next_invoice_date = SubscriptionPeriod(subscription).get_next_invoice_date()
 		if getdate(next_invoice_date) < getdate(nowdate()):
 			frappe.throw(
@@ -252,7 +255,7 @@ class StripeSettings(PaymentGatewayController):
 
 def handle_webhooks(**kwargs):
 	# TODO: Refactor implementation
-	from erpnext.erpnext_integrations.webhooks_controller import handle_webhooks as _handle_webhooks
+	from payments.utils.webhooks_controller import handle_webhooks as _handle_webhooks
 
 	WEBHOOK_HANDLERS = {
 		"charge": StripeChargeWebhookHandler,
