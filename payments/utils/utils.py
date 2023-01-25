@@ -106,7 +106,6 @@ def create_payment_gateway(gateway, settings=None, controller=None):
 
 def after_install():
 	make_custom_fields()
-	patch_erpnext_webhooks_url()
 
 def make_custom_fields():
 	if not frappe.get_meta("Web Form").has_field("payments_tab"):
@@ -212,24 +211,6 @@ def delete_custom_fields():
 			frappe.db.delete("Custom Field", {"name": "Web Form-" + fieldname})
 
 		frappe.clear_cache(doctype="Web Form")
-
-def patch_erpnext_webhooks_url():
-	# TODO: Remove this after v3
-	from payments.payment_gateways.doctype.stripe_settings.stripe_settings import create_delete_webhooks, delete_webhooks
-	from payments.payment_gateways.doctype.stripe_settings.api import StripeWebhookEndpoint
-
-	if frappe.conf.mute_payment_gateways:
-		return
-
-	for stripe_settings in frappe.get_all("Stripe Settings"):
-		print(f"Updating Webhook URL for Stripe settings: {stripe_settings.name}")
-		doc = frappe.get_doc("Stripe Settings", stripe_settings.name)
-		endpoint = "/api/method/erpnext.erpnext_integrations.doctype.stripe_settings.webhooks?account="
-		url = f"{frappe.utils.get_url(endpoint)}{stripe_settings.name}"
-		webhooks_list = StripeWebhookEndpoint(doc).get_all()
-		if doc.publishable_key and doc.secret_key and webhooks_list:
-			delete_webhooks(doc, url)
-			create_delete_webhooks(doc.name, "create")
 
 def before_install():
 	# TODO: remove this

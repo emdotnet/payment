@@ -3,10 +3,12 @@
 
 from datetime import datetime
 
+import stripe
+
 import frappe
 from frappe import _
 from frappe.integrations.utils import get_gateway_controller
-from frappe.utils import cint, flt, fmt_money, get_datetime, getdate, nowdate
+from frappe.utils import cint, flt, fmt_money, get_datetime, getdate, nowdate, get_url
 
 # TODO: Move to hook
 from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
@@ -31,7 +33,6 @@ expected_keys = (
 	"currency",
 	"redirect_to"
 )
-
 
 def get_context(context):
 	context.no_cache = 1
@@ -100,6 +101,27 @@ def get_context(context):
 		frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
 		frappe.local.flags.redirect_location = frappe.local.response.location
 		raise frappe.Redirect
+
+	stripe.api_key = gateway_controller.get_password("secret_key")
+
+	checkout_session = stripe.checkout.Session.create(
+		line_items=[{
+			'price_data': {
+				'currency': context.currency,
+				'product_data': {
+					'name': context.description,
+				},
+				'unit_amount': cint(context.grand_total) * 100,
+			},
+			'quantity': 1,
+		}],
+		mode='payment',
+		success_url=get_url(context.payment_success_redirect),
+		cancel_url=get_url(context.payment_failure_redirect),
+	)
+
+	frappe.local.flags.redirect_location = checkout_session.url
+	raise frappe.Redirect
 
 
 def get_api_key(gateway_controller):

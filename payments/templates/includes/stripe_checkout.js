@@ -53,8 +53,10 @@ class StripeCheckout {
 				currency: this.currency
 			}
 		}).then(r => {
-			this.client_secret = r.message.client_secret;
-			this.mount_card();
+			if (r.message) {
+				this.client_secret = r.message.client_secret;
+				this.mount_card();
+			}
 		})
 	}
 
