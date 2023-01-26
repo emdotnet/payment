@@ -1,23 +1,18 @@
 # Copyright (c) 2022, Dokos SAS and Contributors
 # License: GNU General Public License v3. See license.txt
 
-from datetime import datetime
-
 import stripe
 
 import frappe
 from frappe import _
-from frappe.integrations.utils import get_gateway_controller
-from frappe.utils import cint, flt, fmt_money, get_datetime, getdate, nowdate, get_url
+from payments.utils.utils import get_gateway_controller
+from frappe.utils import cint, flt
 
-# TODO: Move to hook
-from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
 	StripeInvoice,
 	StripePaymentIntent,
 	StripePaymentMethod,
-	StripeSubscription,
 )
 
 expected_keys = (
@@ -26,103 +21,57 @@ expected_keys = (
 	"description",
 	"reference_doctype",
 	"reference_docname",
-	"webform",
 	"payer_name",
 	"payer_email",
 	"order_id",
 	"currency",
-	"redirect_to"
+	"payment_key"
 )
 
 def get_context(context):
 	context.no_cache = 1
-	context.lang = frappe.local.lang
 
-	if frappe.db.exists(
-		"Payment Request", {"payment_key": frappe.form_dict.get("key"), "docstatus": 1}
-	):
-		payment_request = frappe.get_doc("Payment Request", {"payment_key": frappe.form_dict.get("key")})
-
-		if payment_request.status in ("Paid", "Completed", "Cancelled"):
-			frappe.redirect_to_message(
-				_("Already paid"),
-				_("This payment has already been done.<br>Please contact us if you have any question."),
-			)
-			frappe.local.flags.redirect_location = frappe.local.response.location
-			raise frappe.Redirect
-
-		gateway_controller = frappe.get_doc(
-			"Stripe Settings", get_gateway_controller(payment_request.doctype, payment_request.name)
-		)
-
-		customer_id = payment_request.get_customer()
-		context.customer = (
-			StripeCustomer(gateway_controller).get_or_create(customer_id).get("id") if customer_id else ""
-		)
-
-		context.publishable_key = gateway_controller.publishable_key
-		context.payment_key = frappe.form_dict.get("key")
-		context.image = gateway_controller.header_img
-		context.description = payment_request.subject
-		context.payer_name = (
-			frappe.db.get_value("Customer", customer_id, "customer_name") if customer_id else ""
-		)
-		context.payer_email = payment_request.email_to or (
-			frappe.session.user if frappe.session.user != "Guest" else ""
-		)
-		context.amount = fmt_money(amount=payment_request.grand_total, currency=payment_request.currency)
-		context.is_subscription = (
-			1
-			if (
-				payment_request.is_linked_to_a_subscription()
-				and cint(gateway_controller.subscription_cycle_on_stripe)
-			)
-			else 0
-		)
-		context.payment_success_redirect = gateway_controller.redirect_url or "/payment-success"
-		context.payment_failure_redirect = gateway_controller.failure_redirect_url or "/payment-failed"
-
-	elif not (set(expected_keys) - set(list(frappe.form_dict))):
+	if not (set(expected_keys) - set(list(frappe.form_dict))):
 		for key in expected_keys:
 			context[key] = frappe.form_dict[key]
 
-		gateway_controller = frappe.get_doc(
-			"Stripe Settings", get_gateway_controller("Web Form", context.webform)
+		gateway_controller = get_gateway_controller(
+			context.reference_doctype, context.reference_docname
 		)
-		context.publishable_key = get_api_key(gateway_controller)
-		context.image = gateway_controller.header_img
-		context.is_subscription = 0
-		context.payment_success_redirect = gateway_controller.redirect_url or "/payment-success"
-		context.payment_failure_redirect = gateway_controller.failure_redirect_url or "/payment-failed"
-		context.grand_total = context["amount"]
-		context.amount = fmt_money(amount=context["amount"], currency=context["currency"])
+		if not gateway_controller:
+			redirect_to_invalid_link()
 
+		reference_document = frappe.get_doc(context.reference_doctype, context.reference_docname)
 	else:
-		frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
-		frappe.local.flags.redirect_location = frappe.local.response.location
-		raise frappe.Redirect
+		redirect_to_invalid_link()
 
-	stripe.api_key = gateway_controller.get_password("secret_key")
+	stripe_settings = frappe.get_cached_doc("Stripe Settings", gateway_controller)
+	stripe.api_key = stripe_settings.get_password("secret_key")
+	customer = reference_document.customer if hasattr(reference_document, 'customer') else reference_document.get("customer")
+	stripe_customer_id = stripe_settings.get_stripe_customer_id(customer) if customer else None
 
-	checkout_session = stripe.checkout.Session.create(
-		line_items=[{
-			'price_data': {
-				'currency': context.currency,
-				'product_data': {
-					'name': context.description,
-				},
-				'unit_amount': cint(context.grand_total) * 100,
-			},
-			'quantity': 1,
-		}],
-		mode='payment',
-		success_url=get_url(context.payment_success_redirect),
-		cancel_url=get_url(context.payment_failure_redirect),
+	checkout_session = stripe_settings.create_checkout_session(
+		customer=stripe_customer_id,
+		customer_email=context.payer_email,
+		metadata={
+			"reference_doctype": context.reference_doctype,
+			"reference_name": context.reference_docname
+		},
+		amount=context.amount,
+		currency=context.currency,
+		description=context.description,
+		payment_success_redirect=stripe_settings.redirect_url or "/payment-success",
+		payment_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed"
 	)
 
 	frappe.local.flags.redirect_location = checkout_session.url
 	raise frappe.Redirect
 
+
+def redirect_to_invalid_link():
+	frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
+	frappe.local.flags.redirect_location = frappe.local.response.location
+	raise frappe.Redirect
 
 def get_api_key(gateway_controller):
 	if isinstance(gateway_controller, str):
@@ -208,43 +157,6 @@ def retry_invoice(**kwargs):
 		kwargs.get("invoiceId"), expand=["payment_intent"]
 	)
 	return invoice
-
-
-@frappe.whitelist(allow_guest=True)
-def make_subscription(**kwargs):
-	payment_request, payment_gateway = _update_payment_method(**kwargs)
-
-	subscription = frappe.get_doc("Subscription", payment_request.is_linked_to_a_subscription())
-	items = [
-		{"price": x.stripe_plan, "quantity": x.qty}
-		for x in subscription.plans
-		if x.stripe_plan and x.status == "Active"
-	]
-
-	data = dict(
-		items=items,
-		expand=["latest_invoice.payment_intent"],
-		metadata={"reference_doctype": subscription.doctype, "reference_name": subscription.name},
-	)
-
-	if subscription.trial_period_end:
-		data.update({"trial_end": int(datetime.timestamp(get_datetime(subscription.trial_period_end)))})
-
-	if getdate(subscription.start) < getdate(nowdate()):
-		data.update(
-			{
-				"backdate_start_date": int(datetime.timestamp(get_datetime(subscription.start))),
-				"billing_cycle_anchor": int(
-					datetime.timestamp(get_datetime(SubscriptionPeriod(subscription).get_next_invoice_date()))
-				),
-			}
-		)
-	else:
-		data.update({"proration_behavior": "none"})
-
-	return StripeSubscription(payment_gateway).create(
-		subscription.name, kwargs.get("customerId"), **data
-	)
 
 
 def _update_payment_method(**kwargs):

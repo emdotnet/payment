@@ -1,160 +1,67 @@
-# Copyright (c) 2020, Dokos SAS and contributors
+# Copyright (c) 2023, Dokos SAS and contributors
 # For license information, please see license.txt
 
-import datetime
 import json
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate
 
-from payments.payment_gateways.doctype.stripe_settings.api import StripeCharge, StripeInvoice
-# TODO: Refactor implementation
-from erpnext.erpnext_integrations.webhooks_controller import WebhooksController
+STATUS_MAP = {
+	"payment_intent.created": "Pending",
+	"payment_intent.canceled": "Failed",
+	"payment_intent.payment_failed": "Failed",
+	"payment_intent.processing": "Pending",
+	"payment_intent.succeeded": "Paid",
+}
 
-
-class StripeWebhooksController(WebhooksController):
+class StripeWebhooksController:
 	def __init__(self, **kwargs):
-		super(StripeWebhooksController, self).__init__(**kwargs)
-		self.period_start = None
-		self.period_end = None
-		self.stripe_invoice = {}
+		self.integration_request = frappe.get_doc(kwargs.get("doctype"), kwargs.get("docname"))
+		self.integration_request.db_set("error", None)
+		self.data = json.loads(self.integration_request.get("data"))
+		self.payment_intent = self.data.get("data", {}).get("object", {}).get("id")
+		self.metadata = {}
+		self.get_reference_documents()
 
-	def init_handler(self):
-		self.stripe_settings = frappe.get_doc(
-			"Stripe Settings", self.integration_request.get("payment_gateway_controller")
-		)
-		self.payment_gateway = frappe.get_doc(
-			"Payment Gateway",
-			dict(
-				gateway_settings="Stripe Settings",
-				gateway_controller=self.integration_request.get("payment_gateway_controller"),
-			),
-		)
+		self.integration_request.load_from_db()
+		self.handle_webhook()
 
-		self.get_metadata()
-		self.get_invoice()
-		self.get_payment_request()
+	def get_reference_documents(self):
+		self.metadata = self.data.get("data", {}).get("object", {}).get("metadata")
+		for k in ("reference_doctype", "reference_docname", "reference_name"):
+			if k in self.metadata:
+				key = "reference_docname" if k == "reference_name" else k
+				self.integration_request.db_set(key, self.metadata[k])
 
 	def handle_webhook(self):
-		self.action_type = self.data.get("type")
+		action = self.data.get("type")
+		if action not in STATUS_MAP:
+			return self.integration_request.handle_failure(
+				response={"message": _("This type of event is not handled")},
+				status="Not Handled"
+			)
 
-		if self.metadata:
-			self.handle_update()
-		else:
-			self.set_as_failed(_("No metadata found in this webhook"))
+		elif not (self.integration_request.reference_doctype and self.integration_request.reference_docname):
+			return self.integration_request.handle_failure(
+				response={"message": _("This event contains not metadata")},
+				status="Error"
+			)
 
-	def get_metadata(self):
-		self.metadata = self.data.get("data", {}).get("object", {}).get("metadata")
+		elif not frappe.db.exists(self.integration_request.reference_doctype, self.integration_request.reference_docname):
+			return self.integration_request.handle_failure(
+				response={"message": _("The reference document does not exist")},
+				status="Error"
+			)
 
-	def get_invoice(self):
-		object_type = self.data.get("data", {}).get("object", {}).get("object")
-		if object_type == "invoice":
-			invoice = self.data.get("data", {}).get("object", {}).get("id")
-		else:
-			invoice = self.data.get("data", {}).get("object", {}).get("invoice")
+		try:
+			reference_document = frappe.get_doc(self.integration_request.reference_doctype, self.integration_request.reference_docname)
+			response = reference_document.run_method("on_payment_authorized", status=STATUS_MAP[action], reference_no=self.payment_intent)
+			self.integration_request.handle_success(
+				response={"message": response}
+			)
 
-		if invoice:
-			self.stripe_invoice = StripeInvoice(self.stripe_settings).retrieve(invoice)
-
-	def get_payment_request(self):
-		payment_request_id = None
-		if not self.metadata:
-			return
-
-		if self.metadata.get("reference_doctype") == "Subscription":
-			self.subscription = frappe.get_doc("Subscription", self.metadata.get("reference_name"))
-			if self.stripe_invoice:
-				period = self.stripe_invoice.get("lines", {}).get("data", [])[0].get("period", {})
-				self.period_start = getdate(datetime.datetime.utcfromtimestamp(period.get("start")))
-				self.period_end = getdate(datetime.datetime.utcfromtimestamp(period.get("end")))
-			if self.period_start and self.period_end:
-				payment_request_id = self.subscription.get_payment_request_for_period(
-					self.period_start, add_days(self.period_end, -1)
-				)
-
-		if self.metadata.get("payment_request"):
-			payment_request_id = self.metadata.get("payment_request")
-		elif self.metadata.get("reference_doctype") == "Payment Request":
-			payment_request_id = self.metadata.get("reference_name")
-
-		if payment_request_id and frappe.db.exists("Payment Request", payment_request_id):
-			self.payment_request = frappe.get_doc("Payment Request", payment_request_id)
-
-	def add_fees_before_submission(self, payment_entry):
-		output = []
-		for charge in self.charges:
-			stripe_charge = StripeCharge(self.stripe_settings).retrieve(charge)
-			output.append(stripe_charge)
-
-			if stripe_charge.balance_transaction.currency != payment_entry.paid_to_account_currency:
-				currency_account = frappe.db.get_value(
-					"Payment Gateway Account",
-					{
-						"payment_gateway": self.payment_gateway.name,
-						"currency": stripe_charge.balance_transaction.currency,
-					},
-					"payment_account",
-				)
-				if not currency_account:
-					frappe.throw(
-						_("Please create a payment gateway account for currency {0}").format(
-							stripe_charge.balance_transaction.currency
-						)
-					)
-
-				payment_entry.update(
-					{
-						"paid_to": currency_account,
-						"paid_to_account_currency": stripe_charge.balance_transaction.currency,
-					}
-				)
-
-			# We suppose all charges within the same payment intent have the same exchange rate
-			exchange_rate = 1 / flt(stripe_charge.balance_transaction.get("exchange_rate") or 1)
-
-			received_amount = flt(stripe_charge.balance_transaction.get("amount")) / 100
-			paid_amount = received_amount * exchange_rate
-			fee_amount = flt(stripe_charge.balance_transaction.get("fee")) / 100 * exchange_rate
-
-			payment_entry.mode_of_payment = self.payment_gateway.mode_of_payment
-
-			if exchange_rate:
-				payment_entry.update(
-					{
-						"target_exchange_rate": exchange_rate,
-					}
-				)
-
-			if fee_amount and self.payment_gateway.fee_account and self.payment_gateway.cost_center:
-				payment_entry.update(
-					{
-						"paid_amount": flt(paid_amount or payment_entry.paid_amount) - fee_amount,
-						"received_amount": flt(received_amount or payment_entry.received_amount)
-						- flt(stripe_charge.balance_transaction.get("fee")) / 100,
-					}
-				)
-
-				payment_entry.append(
-					"deductions",
-					{
-						"account": self.payment_gateway.fee_account,
-						"cost_center": self.payment_gateway.cost_center,
-						"amount": fee_amount,
-					},
-				)
-
-				payment_entry.set_amounts()
-
-				if payment_entry.total_allocated_amount and payment_entry.unallocated_amount:
-					payment_entry.deductions[0].amount -= flt(payment_entry.unallocated_amount)
-
-		self.integration_request.db_set("output", json.dumps(output, indent=4))
-
-	def create_submit_payment(self):
-		self.get_charges()
-		if self.charges:
-			for charge in self.charges:
-				self.create_payment(charge)
-				if self.integration_request.status != "Failed":
-					self.submit_payment(charge)
+		except Exception:
+			self.integration_request.handle_failure(
+				response={"message": frappe.get_traceback()},
+				status="Error"
+			)

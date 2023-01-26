@@ -8,8 +8,11 @@ import braintree
 import frappe
 from frappe import _
 from frappe.integrations.utils import (
-	PaymentGatewayController,
 	create_request_log,
+)
+
+from payments.utils.utils import (
+	PaymentGatewayController,
 )
 from payments.utils import create_payment_gateway
 from frappe.utils import call_hook_method, get_url
