@@ -15,6 +15,41 @@ class PaymentWebForm(WebForm):
 
 		if getattr(self, "accept_payment", False):
 			self.validate_payment_amount()
+			self.validate_gateway_doc_field()
+
+	def validate_gateway_doc_field(self):
+		meta = frappe.get_meta(self.doc_type)
+		if not meta.has_field("payment_gateway"):
+			frappe.throw(frappe._(
+				"The selected document type ({0}) must contain a `{1}` field. This field is used to store the payment gateway used for the payment made when the form is submitted."
+			).format(frappe._(self.doc_type), "payment_gateway"))
+
+	def should_pay_for_doc(self, doc):
+		if getattr(self, "accept_payment", False):
+			meta = frappe.get_meta(doc.doctype)
+			if meta.has_field("paid"):
+				if doc.paid:
+					return False  # document already paid
+			return True
+		return False  # web form does not accept payments
+
+	def webform_validate_doc(self, doc):
+		super().webform_validate_doc(doc)
+
+		if self.should_pay_for_doc(doc):
+			meta = frappe.get_meta(doc.doctype)
+			if meta.has_field("payment_gateway"):
+				doc.payment_gateway = self.payment_gateway
+			doc.run_method("validate_payment")
+
+	def webform_accept_doc(self, doc):
+		original_result = super().webform_accept_doc(doc)
+
+		if self.should_pay_for_doc(doc):
+			redirect_url = self.get_payment_gateway_url(doc)
+			return { "redirect": redirect_url }
+
+		return original_result
 
 	def validate_payment_amount(self):
 		if self.amount_based_on_field and not self.amount_field:
@@ -56,109 +91,6 @@ class PaymentWebForm(WebForm):
 @frappe.whitelist(allow_guest=True)
 @rate_limit(key="web_form", limit=5, seconds=60, methods=["POST"])
 def accept(web_form, data, docname=None, for_payment=False):
-	"""Save the web form"""
-	data = frappe._dict(json.loads(data))
-	for_payment = frappe.parse_json(for_payment)
-
-	docname = docname or data.name
-
-	files = []
-	files_to_delete = []
-
-	web_form = frappe.get_doc("Web Form", web_form)
-
-	if docname and not web_form.allow_edit:
-		frappe.throw(frappe._("You are not allowed to update this Web Form Document"))
-
-	frappe.flags.in_web_form = True
-	meta = frappe.get_meta(data.doctype)
-
-	if docname:
-		# update
-		doc = frappe.get_doc(data.doctype, docname)
-	else:
-		# insert
-		doc = frappe.new_doc(data.doctype)
-
-	# set values
-	for field in web_form.web_form_fields:
-		fieldname = field.fieldname
-		df = meta.get_field(fieldname)
-		value = data.get(fieldname, None)
-
-		if df and df.fieldtype in ("Attach", "Attach Image"):
-			if value and "data:" and "base64" in value:
-				files.append((fieldname, value))
-				if not doc.name:
-					doc.set(fieldname, "")
-				continue
-
-			elif not value and doc.get(fieldname):
-				files_to_delete.append(doc.get(fieldname))
-
-		doc.set(fieldname, value)
-
-	if for_payment:
-		web_form.validate_mandatory(doc)
-
-		if hasattr(doc, "payment_gateway"):
-			doc.payment_gateway = web_form.payment_gateway
-
-		doc.run_method("validate_payment")
-
-	if doc.name:
-		if web_form.has_web_form_permission(doc.doctype, doc.name, "write"):
-			doc.save(ignore_permissions=True)
-		else:
-			# only if permissions are present
-			doc.save()
-
-	else:
-		# insert
-		if web_form.login_required and frappe.session.user == "Guest":
-			frappe.throw(frappe._("You must login to submit this form"))
-
-		ignore_mandatory = True if files else False
-
-		doc.insert(ignore_permissions=True, ignore_mandatory=ignore_mandatory)
-
-	# add files
-	if files:
-		for f in files:
-			fieldname, filedata = f
-
-			# remove earlier attached file (if exists)
-			if doc.get(fieldname):
-				remove_file_by_url(doc.get(fieldname), doctype=doc.doctype, name=doc.name)
-
-			# save new file
-			filename, dataurl = filedata.split(",", 1)
-			_file = frappe.get_doc(
-				{
-					"doctype": "File",
-					"file_name": filename,
-					"attached_to_doctype": doc.doctype,
-					"attached_to_name": doc.name,
-					"content": dataurl,
-					"decode": True,
-				}
-			)
-			_file.save()
-
-			# update values
-			doc.set(fieldname, _file.file_url)
-
-		doc.save(ignore_permissions=True)
-
-	if files_to_delete:
-		for f in files_to_delete:
-			if f:
-				remove_file_by_url(f, doctype=doc.doctype, name=doc.name)
-
-	frappe.flags.web_form_doc = doc
-
-	if for_payment:
-		# this is needed for Payments app
-		return web_form.get_payment_gateway_url(doc)
-	else:
-		return doc
+	from frappe.website.doctype.web_form.web_form import accept
+	raise DeprecationWarning("This API endpoint is deprecated.")
+	return accept(web_form=web_form, data=data)

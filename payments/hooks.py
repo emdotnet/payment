@@ -131,9 +131,9 @@ before_tests = "payments.install.before_tests"
 # Overriding Methods
 # ------------------------------
 #
-override_whitelisted_methods = {
-	"frappe.website.doctype.web_form.web_form.accept": "payments.overrides.payment_webform.accept"
-}
+# override_whitelisted_methods = {
+# 	"frappe.website.doctype.web_form.web_form.accept": "payments.overrides.payment_webform.accept"
+# }
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
