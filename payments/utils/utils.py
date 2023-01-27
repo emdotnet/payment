@@ -65,9 +65,9 @@ def get_payment_gateway_controller(payment_gateway):
 
 
 def get_gateway_controller(doctype, docname):
-	reference_doc = frappe.get_doc(doctype, docname)
+	payment_gateway = frappe.db.get_value(doctype, docname, "payment_gateway")
 	gateway_controller = frappe.db.get_value(
-		"Payment Gateway", reference_doc.payment_gateway, "gateway_controller"
+		"Payment Gateway", payment_gateway, "gateway_controller"
 	)
 	return gateway_controller
 

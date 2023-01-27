@@ -44,13 +44,13 @@ class StripeWebhooksController:
 		elif not (self.integration_request.reference_doctype and self.integration_request.reference_docname):
 			return self.integration_request.handle_failure(
 				response={"message": _("This event contains not metadata")},
-				status="Error"
+				status="Failed"
 			)
 
 		elif not frappe.db.exists(self.integration_request.reference_doctype, self.integration_request.reference_docname):
 			return self.integration_request.handle_failure(
 				response={"message": _("The reference document does not exist")},
-				status="Error"
+				status="Failed"
 			)
 
 		try:
@@ -63,5 +63,5 @@ class StripeWebhooksController:
 		except Exception:
 			self.integration_request.handle_failure(
 				response={"message": frappe.get_traceback()},
-				status="Error"
+				status="Failed"
 			)

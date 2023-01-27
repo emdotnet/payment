@@ -42,8 +42,8 @@ class PaymentWebForm(WebForm):
 				"description": title,
 				"reference_doctype": doc.doctype,
 				"reference_docname": doc.name,
-				"payer_email": frappe.session.user,
-				"payer_name": frappe.utils.get_fullname(frappe.session.user),
+				"payer_email": doc.get("email") or frappe.session.user,
+				"payer_name": doc.get("full_name") or frappe.utils.get_fullname(frappe.session.user),
 				"order_id": doc.name,
 				"currency": self.currency,
 				"redirect_to": frappe.utils.get_url(self.success_url or self.route),
@@ -100,6 +100,10 @@ def accept(web_form, data, docname=None, for_payment=False):
 
 	if for_payment:
 		web_form.validate_mandatory(doc)
+
+		if hasattr(doc, "payment_gateway"):
+			doc.payment_gateway = web_form.payment_gateway
+
 		doc.run_method("validate_payment")
 
 	if doc.name:

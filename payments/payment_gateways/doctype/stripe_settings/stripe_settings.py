@@ -177,11 +177,11 @@ class StripeSettings(PaymentGatewayController):
 			or {}
 		)
 
-		self.trigger_on_payment_authorized(metadata)
+		self.trigger_on_payment_authorized(metadata, payment_intent.get("id"))
 
 		return payment_intent.get("id")
 
-	def create_checkout_session(self, customer, customer_email, amount, currency, description, payment_success_redirect, payment_failure_redirect, metadata):
+	def create_checkout_session(self, customer, customer_email, amount, currency, description, payment_success_redirect, payment_failure_redirect, metadata, mode='payment'):
 		checkout_session = stripe.checkout.Session.create(
 			customer=customer,
 			customer_email=customer_email if check_format(customer_email) else None,
@@ -194,25 +194,26 @@ class StripeSettings(PaymentGatewayController):
 					'unit_amount': cint(flt(amount) * 100.0),
 				},
 				'quantity': 1,
-			}],
+			}] if mode != "setup" else None,
 			metadata=metadata,
-			mode='payment',
+			mode=mode,
 			success_url=get_url(payment_success_redirect),
 			cancel_url=get_url(payment_failure_redirect),
+			payment_method_types=["card", "sepa_debit"] if mode == "setup" else None
 		)
 
 		self.update_payment_intent_metadata(checkout_session.get("payment_intent"), metadata)
-		self.trigger_on_payment_authorized(metadata)
+		self.trigger_on_payment_authorized(metadata, checkout_session.get("payment_intent"))
 
 		return checkout_session
 
 	def update_payment_intent_metadata(self, payment_intent, metadata):
 		StripePaymentIntent(self).update(payment_intent, metadata=metadata)
 
-	def trigger_on_payment_authorized(self, metadata):
+	def trigger_on_payment_authorized(self, metadata, payment_intent):
 		if metadata.get("reference_doctype") and (metadata.get("reference_name") or metadata.get("reference_docname")):
 			reference_document = frappe.get_doc(metadata.get("reference_doctype"), (metadata.get("reference_name") or metadata.get("reference_docname")))
-			reference_document.run_method("on_payment_authorized", "Pending")
+			reference_document.run_method("on_payment_authorized", "Pending", payment_intent)
 
 	def get_transaction_fees(self, payment_intent):
 		stripe_payment_intent_object = StripePaymentIntent(self).retrieve(payment_intent, expand=['latest_charge.balance_transaction'])
@@ -274,9 +275,3 @@ def delete_webhooks(stripe_settings, url):
 
 	return webhooks_list
 
-def get_gateway_controller(doctype, docname):
-	reference_doc = frappe.get_doc(doctype, docname)
-	gateway_controller = frappe.db.get_value(
-		"Payment Gateway", reference_doc.payment_gateway, "gateway_controller"
-	)
-	return gateway_controller

@@ -10,7 +10,7 @@ dynamic = ["version"]
 dependencies = [
     "paytmchecksum~=1.7.0",
     "razorpay~=1.2.0",
-    "stripe~=2.56.0",
+    "stripe~=5.0.0",
     "braintree~=4.18.0"
 ]
 

@@ -25,7 +25,6 @@ expected_keys = (
 	"payer_email",
 	"order_id",
 	"currency",
-	"payment_key"
 )
 
 def get_context(context):
@@ -61,7 +60,8 @@ def get_context(context):
 		currency=context.currency,
 		description=context.description,
 		payment_success_redirect=stripe_settings.redirect_url or "/payment-success",
-		payment_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed"
+		payment_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed",
+		mode="setup" if is_linked_to_subscription(context.reference_doctype) else "payment"
 	)
 
 	frappe.local.flags.redirect_location = checkout_session.url
@@ -78,6 +78,11 @@ def get_api_key(gateway_controller):
 		return frappe.get_doc("Stripe Settings", gateway_controller).publishable_key
 
 	return gateway_controller.publishable_key
+
+def is_linked_to_subscription(reference_doctype):
+	meta = frappe.get_meta(reference_doctype)
+	if reference_doctype == "Subscription" or [df for df in meta.fields if df.fieldname == "subscription"]:
+		return True
 
 
 @frappe.whitelist(allow_guest=True)
