@@ -12,7 +12,6 @@ STATUS_MAP = {
 	"payment_intent.payment_failed": "Failed",
 	"payment_intent.processing": "Pending",
 	"payment_intent.succeeded": "Paid",
-	"checkout.session.completed": "Paid",
 }
 
 class StripeWebhooksController:
