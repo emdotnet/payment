@@ -20,6 +20,8 @@ from payments.payment_gateways.doctype.stripe_settings.api import (
 )
 from payments.payment_gateways.doctype.stripe_settings.webhook_events import StripeWebhooksController
 
+WEBHOOK_ENDPOINT = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
+
 class StripeSettings(PaymentGatewayController):
 	currency_wise_minimum_charge_amount = {
 		"JPY": 50,
@@ -54,6 +56,10 @@ class StripeSettings(PaymentGatewayController):
 
 	def before_insert(self):
 		self.gateway_name = frappe.scrub(self.gateway_name)
+
+	def validate(self):
+		if self.name:
+			self.webhook_url = f"{frappe.utils.get_url(WEBHOOK_ENDPOINT)}{self.name}"
 
 	def configure_stripe(self):
 		self.stripe = stripe
@@ -240,8 +246,7 @@ def handle_webhooks(**kwargs):
 @frappe.whitelist()
 def create_delete_webhooks(settings, action="create"):
 	stripe_settings = frappe.get_doc("Stripe Settings", settings)
-	endpoint = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
-	url = f"{frappe.utils.get_url(endpoint)}{stripe_settings.name}"
+	url = f"{frappe.utils.get_url(WEBHOOK_ENDPOINT)}{stripe_settings.name}"
 
 	if action == "create":
 		return create_webhooks(stripe_settings, url)

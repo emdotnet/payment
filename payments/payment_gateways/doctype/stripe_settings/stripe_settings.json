@@ -10,6 +10,7 @@
   "gateway_name",
   "publishable_key",
   "webhook_secret_key",
+  "webhook_url",
   "column_break_3",
   "secret_key",
   "redirection_section",
@@ -94,14 +95,21 @@
    "fieldname": "redirection_section",
    "fieldtype": "Section Break",
    "label": "Redirection"
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2023-01-09 10:06:13.834280",
+ "modified": "2023-02-02 10:24:46.275376",
  "modified_by": "Administrator",
  "module": "Payment Gateways",
  "name": "Stripe Settings",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {
@@ -117,5 +125,6 @@
  ],
  "quick_entry": 1,
  "sort_field": "modified",
- "sort_order": "DESC"
+ "sort_order": "DESC",
+ "states": []
 }
