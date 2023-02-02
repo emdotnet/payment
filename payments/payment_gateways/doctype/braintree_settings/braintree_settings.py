@@ -220,8 +220,8 @@ class BraintreeSettings(PaymentGatewayController):
 				"redirect_to": frappe.redirect_to_message(
 					_("Server Error"),
 					_(
-						"There seems to be an issue with the server's braintree configuration. Don't worry, in case of failure, the amount will get refunded to your account."
-					),
+						"There seems to be an issue with the server's {0} configuration. Don't worry, in case of failure, the amount will get refunded to your account."
+					).format("Braintree"),
 				),
 				"status": 401,
 			}
@@ -239,7 +239,7 @@ class BraintreeSettings(PaymentGatewayController):
 			self.merchant_account = matching_merchants[0]
 
 		if not hasattr(self, "merchant_account"):
-			frappe.log_error(_(f"Merchant account for currency {self.data.currency} missing"))
+			frappe.log_error(_("Merchant account for currency {0} missing").format(self.data.currency))
 
 	def create_charge_on_braintree(self):
 		self.get_merchant_account()

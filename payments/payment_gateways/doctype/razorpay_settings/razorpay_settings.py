@@ -103,7 +103,7 @@ class RazorpaySettings(Document):
 					),
 				)
 			except Exception:
-				frappe.throw(_("Seems API Key or API Secret is wrong !!!"))
+				frappe.throw(_("Seems API Key or API Secret is wrong"))
 
 	def validate_transaction_currency(self, currency):
 		if currency not in self.supported_currencies:
@@ -249,8 +249,8 @@ class RazorpaySettings(Document):
 				"redirect_to": frappe.redirect_to_message(
 					_("Server Error"),
 					_(
-						"Seems issue with server's razorpay config. Don't worry, in case of failure amount will get refunded to your account."
-					),
+						"There seems to be an issue with the server's {0} configuration. Don't worry, in case of failure, the amount will get refunded to your account."
+					).format("Razorpay"),
 				),
 				"status": 401,
 			}
