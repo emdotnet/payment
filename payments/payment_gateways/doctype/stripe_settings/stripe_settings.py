@@ -196,21 +196,20 @@ class StripeSettings(PaymentGatewayController):
 				'quantity': 1,
 			}] if mode != "setup" else None,
 			metadata=metadata,
+			payment_intent_data={"metadata": metadata} if mode == "payment" else None,
 			mode=mode,
 			success_url=get_url(payment_success_redirect),
 			cancel_url=get_url(payment_failure_redirect),
 			payment_method_types=["card", "sepa_debit"] if mode == "setup" else None
 		)
 
-		self.update_payment_intent_metadata(checkout_session.get("payment_intent"), metadata)
-		self.trigger_on_payment_authorized(metadata, checkout_session.get("payment_intent"))
+		# NOTE: A PaymentIntent is no longer created during Checkout Session creation in payment mode.
+		# https://stripe.com/docs/upgrades#2022-08-01
+		self.trigger_on_payment_authorized(metadata, payment_intent=None)
 
 		return checkout_session
 
-	def update_payment_intent_metadata(self, payment_intent, metadata):
-		StripePaymentIntent(self).update(payment_intent, metadata=metadata)
-
-	def trigger_on_payment_authorized(self, metadata, payment_intent):
+	def trigger_on_payment_authorized(self, metadata, payment_intent=None):
 		if metadata.get("reference_doctype") and (metadata.get("reference_name") or metadata.get("reference_docname")):
 			reference_document = frappe.get_doc(metadata.get("reference_doctype"), (metadata.get("reference_name") or metadata.get("reference_docname")))
 			reference_document.run_method("on_payment_authorized", "Pending", payment_intent)

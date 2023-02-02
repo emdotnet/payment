@@ -12,6 +12,7 @@ STATUS_MAP = {
 	"payment_intent.payment_failed": "Failed",
 	"payment_intent.processing": "Pending",
 	"payment_intent.succeeded": "Paid",
+	"checkout.session.completed": "Paid",
 }
 
 class StripeWebhooksController:
@@ -43,7 +44,7 @@ class StripeWebhooksController:
 
 		elif not (self.integration_request.reference_doctype and self.integration_request.reference_docname):
 			return self.integration_request.handle_failure(
-				response={"message": _("This event contains not metadata")},
+				response={"message": _("This event contains no metadata")},
 				status="Failed"
 			)
 
