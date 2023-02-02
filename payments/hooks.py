@@ -64,7 +64,7 @@ app_license = "MIT"
 # ------------
 
 before_install = "payments.utils.before_install"
-after_install = "payments.utils.after_install"
+after_migrate = "payments.utils.after_migrate"
 
 # Uninstallation
 # ------------
