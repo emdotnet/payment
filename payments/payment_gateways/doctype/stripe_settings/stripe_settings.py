@@ -221,7 +221,7 @@ class StripeSettings(PaymentGatewayController):
 			reference_document.run_method("on_payment_authorized", "Pending", payment_intent)
 
 	def get_transaction_fees(self, payment_intent):
-		stripe_payment_intent_object = StripePaymentIntent(self).retrieve(payment_intent, expand=['latest_charge.balance_transaction'])
+		stripe_payment_intent_object = stripe.PaymentIntent.retrieve(payment_intent, expand=['latest_charge.balance_transaction'])
 		return frappe._dict(
 			base_amount = flt(stripe_payment_intent_object.latest_charge.amount) / 100.0,
 			fee_amount = flt(stripe_payment_intent_object.latest_charge.balance_transaction.fee) / 100.0,
