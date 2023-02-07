@@ -8,7 +8,7 @@ import frappe
 import stripe
 from frappe import _
 from payments.utils.utils import PaymentGatewayController
-from frappe.utils import call_hook_method, cint, flt, get_url, check_format
+from frappe.utils import call_hook_method, flt, get_url, check_format
 from payments.utils import create_payment_gateway
 
 from payments.payment_gateways.doctype.stripe_settings.api import (
@@ -168,7 +168,7 @@ class StripeSettings(PaymentGatewayController):
 	def create_payment_intent(self, reference, customer, amount, currency, description, metadata):
 		payment_intent = (
 			StripePaymentIntent(self, reference).create(
-				amount=cint(flt(amount) * 100.0),
+				amount=round(flt(amount) * 100.0),
 				description=description,
 				currency=currency,
 				customer=customer,
@@ -197,7 +197,7 @@ class StripeSettings(PaymentGatewayController):
 					'product_data': {
 						'name': description,
 					},
-					'unit_amount': cint(flt(amount) * 100.0),
+					'unit_amount': round(flt(amount) * 100.0),
 				},
 				'quantity': 1,
 			}] if mode != "setup" else None,
