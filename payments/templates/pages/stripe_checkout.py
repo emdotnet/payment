@@ -6,7 +6,7 @@ import stripe
 import frappe
 from frappe import _
 from payments.utils.utils import get_gateway_controller
-from frappe.utils import cint, flt
+from frappe.utils import flt
 
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
@@ -126,7 +126,7 @@ def make_payment_intent(
 		payment_intent_object.update(dict(customer=customer))
 
 	payment_intent = StripePaymentIntent(gateway_controller, payment_request).create(
-		amount=cint(flt(payment_request.grand_total) * 100),
+		amount=round(flt(payment_request.grand_total) * 100),
 		currency=payment_request.currency,
 		**payment_intent_object
 	)
