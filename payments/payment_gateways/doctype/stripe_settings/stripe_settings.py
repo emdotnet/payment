@@ -159,13 +159,18 @@ class StripeSettings(PaymentGatewayController):
 	def immediate_payment_processing(self, reference, customer, amount, currency, description, metadata):
 		try:
 			stripe_customer_id = self.get_stripe_customer_id(customer)
-			self.create_payment_intent(self, reference, stripe_customer_id, amount, currency, description, metadata)
+			payment_intent_id = self.create_payment_intent(reference, stripe_customer_id, amount, currency, description, metadata)
+			return payment_intent_id
 		except Exception:
 			frappe.log_error(
 				_("Stripe direct processing failed for {0}".format(reference)),
+				message=frappe.get_traceback(),
+				reference_doctype=isinstance(metadata, dict) and metadata.get("reference_doctype"),
+				reference_name=isinstance(metadata, dict) and metadata.get("reference_name"),
 			)
 
 	def create_payment_intent(self, reference, customer, amount, currency, description, metadata):
+		payment_method = StripeCustomer(self).get(customer).get("invoice_settings", {}).get("default_payment_method")
 		payment_intent = (
 			StripePaymentIntent(self, reference).create(
 				amount=round(flt(amount) * 100.0),
@@ -175,10 +180,7 @@ class StripeSettings(PaymentGatewayController):
 				confirm=True,
 				off_session=True,
 				metadata=metadata,
-				payment_method=StripeCustomer(self)
-				.get(customer)
-				.get("invoice_settings", {})
-				.get("default_payment_method"),
+				payment_method=payment_method,
 			)
 			or {}
 		)
@@ -221,7 +223,7 @@ class StripeSettings(PaymentGatewayController):
 			reference_document.run_method("on_payment_authorized", "Pending", payment_intent)
 
 	def get_transaction_fees(self, payment_intent):
-		stripe_payment_intent_object = stripe.PaymentIntent.retrieve(payment_intent, expand=['latest_charge.balance_transaction'])
+		stripe_payment_intent_object = self.stripe.PaymentIntent.retrieve(payment_intent, expand=['latest_charge.balance_transaction'])
 		return frappe._dict(
 			base_amount = flt(stripe_payment_intent_object.latest_charge.amount) / 100.0,
 			fee_amount = flt(stripe_payment_intent_object.latest_charge.balance_transaction.fee) / 100.0,
@@ -229,9 +231,11 @@ class StripeSettings(PaymentGatewayController):
 		)
 
 	def get_customer_id(self, payment_intent):
-		stripe_payment_intent_object = StripePaymentIntent(self).retrieve(payment_intent)
-		return stripe_payment_intent_object.customer
-
+		stripe_payment_intent_object = self.stripe.PaymentIntent.retrieve(payment_intent)
+		if stripe_payment_intent_object:
+			return stripe_payment_intent_object.customer
+		else:
+			return None
 
 
 def handle_webhooks(**kwargs):

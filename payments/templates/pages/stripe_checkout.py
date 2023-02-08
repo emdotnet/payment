@@ -1,6 +1,7 @@
 # Copyright (c) 2022, Dokos SAS and Contributors
 # License: GNU General Public License v3. See license.txt
 
+from typing import NoReturn
 import stripe
 
 import frappe
@@ -67,8 +68,7 @@ def get_context(context):
 	frappe.local.flags.redirect_location = checkout_session.url
 	raise frappe.Redirect
 
-
-def redirect_to_invalid_link():
+def redirect_to_invalid_link() -> NoReturn:
 	frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
 	frappe.local.flags.redirect_location = frappe.local.response.location
 	raise frappe.Redirect
