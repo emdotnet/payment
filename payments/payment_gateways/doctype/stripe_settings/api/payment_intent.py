@@ -18,10 +18,6 @@ class StripePaymentIntent:
 		)
 
 	@handle_stripe_errors
-	def retrieve(self, id, client_secret):
-		return self.gateway.stripe.PaymentIntent.retrieve(id, client_secret=client_secret)
-
-	@handle_stripe_errors
 	def update(self, id, **kwargs):
 		return self.gateway.stripe.PaymentIntent.modify(id, **kwargs)
 

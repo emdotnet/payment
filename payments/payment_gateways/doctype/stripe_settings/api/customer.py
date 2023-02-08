@@ -55,3 +55,34 @@ class StripeCustomer:
 	@handle_stripe_errors
 	def delete(self, stripe_id):
 		return self.gateway.stripe.Customer.delete(stripe_id)
+
+	def register(self, stripe_id, customer_docname):
+		existing = frappe.db.exists(
+			"Integration References",
+			dict(customer=customer_docname),
+		)
+		data = {
+			"stripe_settings": self.gateway.name,
+			"stripe_customer_id": stripe_id,
+		}
+
+		if existing:
+			doc = frappe.get_doc("Integration References", existing)
+			doc.update(data)
+			doc.save(ignore_permissions=True)
+		else:
+			frappe.get_doc(
+				{
+					"doctype": "Integration References",
+					"customer": customer_docname,
+					**data
+				}
+			).insert(ignore_permissions=True)
+			frappe.db.commit()
+
+	@handle_stripe_errors
+	def update_default_payment_method(self, stripe_id, payment_method_id):
+		return self.gateway.stripe.Customer.modify(
+			stripe_id,
+			invoice_settings=dict(default_payment_method=payment_method_id),
+		)
