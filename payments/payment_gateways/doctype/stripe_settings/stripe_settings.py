@@ -189,7 +189,7 @@ class StripeSettings(PaymentGatewayController):
 
 		return payment_intent.get("id")
 
-	def create_checkout_session(self, customer, customer_email, amount, currency, description, payment_success_redirect, payment_failure_redirect, metadata, mode='payment'):
+	def create_payment_checkout_session(self, customer, customer_email, amount, currency, description, payment_success_redirect, payment_failure_redirect, metadata):
 		checkout_session = stripe.checkout.Session.create(
 			customer=customer,
 			customer_email=customer_email if check_format(customer_email) else None,
@@ -202,19 +202,29 @@ class StripeSettings(PaymentGatewayController):
 					'unit_amount': round(flt(amount) * 100.0),
 				},
 				'quantity': 1,
-			}] if mode != "setup" else None,
+			}],
 			metadata=metadata,
-			payment_intent_data={"metadata": metadata} if mode == "payment" else None,
-			mode=mode,
+			payment_intent_data={"metadata": metadata},
+			mode="payment",
 			success_url=get_url(payment_success_redirect),
 			cancel_url=get_url(payment_failure_redirect),
-			payment_method_types=["card", "sepa_debit"] if mode == "setup" else None
 		)
 
 		# NOTE: A PaymentIntent is no longer created during Checkout Session creation in payment mode.
 		# https://stripe.com/docs/upgrades#2022-08-01
 		self.trigger_on_payment_authorized(metadata, payment_intent=None)
+		return checkout_session
 
+	def create_setup_checkout_session(self, customer, setup_success_redirect, setup_failure_redirect, metadata, payment_method_types=["card", "sepa_debit"]):
+		checkout_session = stripe.checkout.Session.create(
+			customer=customer,
+			metadata=metadata,
+			setup_intent_data={"metadata": metadata},
+			mode="setup",
+			success_url=get_url(setup_success_redirect),
+			cancel_url=get_url(setup_failure_redirect),
+			payment_method_types=payment_method_types,
+		)
 		return checkout_session
 
 	def trigger_on_payment_authorized(self, metadata, payment_intent=None):
