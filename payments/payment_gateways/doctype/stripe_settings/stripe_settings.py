@@ -18,7 +18,7 @@ from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripePrice,
 	StripeWebhookEndpoint,
 )
-from payments.payment_gateways.doctype.stripe_settings.webhook_events import StripeWebhooksController
+from payments.payment_gateways.doctype.stripe_settings.webhook_events import StripeWebhooksController, StripeSetupWebhooksController
 
 WEBHOOK_ENDPOINT = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
 
@@ -243,6 +243,8 @@ def handle_webhooks(**kwargs):
 
 	if integration_request.service_document in ["charge", "payment_intent", "invoice", "checkout"]:
 		StripeWebhooksController(**kwargs)
+	elif integration_request.service_document in ["setup_intent", "payment_method", "customer"]:
+		StripeSetupWebhooksController(**kwargs)
 	else:
 		integration_request.handle_failure({"message": _("This type of event is not handled")}, "Not Handled")
 

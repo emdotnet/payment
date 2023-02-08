@@ -50,20 +50,40 @@ def get_context(context):
 	customer = reference_document.customer if hasattr(reference_document, 'customer') else reference_document.get("customer")
 	stripe_customer_id = stripe_settings.get_stripe_customer_id(customer) if customer else None
 
-	checkout_session = stripe_settings.create_checkout_session(
-		customer=stripe_customer_id,
-		customer_email=context.payer_email,
-		metadata={
-			"reference_doctype": context.reference_doctype,
-			"reference_name": context.reference_docname
-		},
-		amount=context.amount,
-		currency=context.currency,
-		description=context.description,
-		payment_success_redirect=stripe_settings.redirect_url or "/payment-success",
-		payment_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed",
-		mode="setup" if is_linked_to_subscription(context.reference_doctype) else "payment"
-	)
+	match mode:
+		case "payment":
+			checkout_session = stripe_settings.create_payment_checkout_session(
+				customer=stripe_customer_id,
+				customer_email=context.payer_email,
+				metadata=metadata,
+				amount=context.amount,
+				currency=context.currency,
+				description=context.description,
+				payment_success_redirect=stripe_settings.redirect_url or "/payment-success",
+				payment_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed",
+			)
+		case "setup":
+			if not customer_docname:
+				frappe.throw(_("Reference document must have a `customer` field in order to complete a `setup` session."))
+
+			customer_api = StripeCustomer(stripe_settings)
+			if not stripe_customer_id:
+				# Always create a customer if needed
+				stripe_customer_id = customer_api.create(customer_docname)
+
+			# Update customer's email address and create/update Integration References
+			# NOTE: If an email is already set, the user won't be able to change it on the Stripe Checkout page
+			customer_api.update(stripe_customer_id, email=context.payer_email)
+			customer_api.register(stripe_customer_id, customer_docname)
+
+			checkout_session = stripe_settings.create_setup_checkout_session(
+				customer=stripe_customer_id,
+				metadata=metadata,
+				setup_success_redirect=stripe_settings.redirect_url or "/payment-success",
+				setup_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed",
+			)
+		case _:
+			raise ValueError("Invalid checkout mode: " + mode)
 
 	frappe.local.flags.redirect_location = checkout_session.url
 	raise frappe.Redirect
