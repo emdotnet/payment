@@ -1,67 +1,44 @@
 # Copyright (c) 2023, Dokos SAS and contributors
 # For license information, please see license.txt
 
-import json
-
 import frappe
 from frappe import _
 
-STATUS_MAP = {
-	"payment_intent.created": "Pending",
-	"payment_intent.canceled": "Failed",
-	"payment_intent.payment_failed": "Failed",
-	"payment_intent.processing": "Pending",
-	"payment_intent.succeeded": "Paid",
-}
+from .base import BaseStripeWebhooksController
 
-class StripeWebhooksController:
-	def __init__(self, **kwargs):
-		self.integration_request = frappe.get_doc(kwargs.get("doctype"), kwargs.get("docname"))
-		self.integration_request.db_set("error", None)
-		self.data = json.loads(self.integration_request.get("data"))
-		self.payment_intent = self.data.get("data", {}).get("object", {}).get("id")
-		self.metadata = {}
-		self.get_reference_documents()
-
-		self.integration_request.load_from_db()
-		self.handle_webhook()
-
-	def get_reference_documents(self):
-		self.metadata = self.data.get("data", {}).get("object", {}).get("metadata")
-		for k in ("reference_doctype", "reference_docname", "reference_name"):
-			if k in self.metadata:
-				key = "reference_docname" if k == "reference_name" else k
-				self.integration_request.db_set(key, self.metadata[k])
+class StripeWebhooksController(BaseStripeWebhooksController):
+	STATUS_MAP = {
+		"payment_intent.created": "Pending",
+		"payment_intent.canceled": "Failed",
+		"payment_intent.payment_failed": "Failed",
+		"payment_intent.processing": "Pending",
+		"payment_intent.succeeded": "Paid",
+	}
 
 	def handle_webhook(self):
-		action = self.data.get("type")
-		if action not in STATUS_MAP:
-			return self.integration_request.handle_failure(
-				response={"message": _("This type of event is not handled")},
-				status="Not Handled"
-			)
+		self.payment_intent = self.data.get("data", {}).get("object", {}).get("id")
 
-		elif not (self.integration_request.reference_doctype and self.integration_request.reference_docname):
-			return self.integration_request.handle_failure(
-				response={"message": _("This event contains no metadata")},
-				status="Failed"
-			)
-
-		elif not frappe.db.exists(self.integration_request.reference_doctype, self.integration_request.reference_docname):
-			return self.integration_request.handle_failure(
-				response={"message": _("The reference document does not exist")},
-				status="Failed"
-			)
+		if not self.validate_data():
+			return
+		self.redact_client_secret()
 
 		try:
-			reference_document = frappe.get_doc(self.integration_request.reference_doctype, self.integration_request.reference_docname)
-			response = reference_document.run_method("on_payment_authorized", status=STATUS_MAP[action], reference_no=self.payment_intent)
-			self.integration_request.handle_success(
-				response={"message": response}
-			)
+			action = self.data.get("type")
+			obj = self.data.get("data", {}).get("object", {})
+			if obj.get("setup_future_usage") == "off_session":
+				stripe_customer_id = obj.get("customer")
+				if stripe_customer_id:
+					if payment_method := obj.get("payment_method"):
+						# Update the default payment method in Stripe's customer record
+						from payments.payment_gateways.doctype.stripe_settings.api import StripeCustomer
+						customer_api = StripeCustomer(self.stripe_settings)
+						customer_api.update_default_payment_method(stripe_customer_id, payment_method)
+						response = f"Updated default payment method for customer '{stripe_customer_id}' to '{payment_method}'"
 
+			reference_document = self.get_reference_document()
+			response = reference_document.run_method("on_payment_authorized", status=self.STATUS_MAP[action], reference_no=self.payment_intent)
+			self.success(response)
 		except Exception:
-			self.integration_request.handle_failure(
-				response={"message": frappe.get_traceback()},
-				status="Failed"
-			)
+			self.failure(frappe.get_traceback())
+
+STATUS_MAP = StripeWebhooksController.STATUS_MAP
