@@ -182,13 +182,30 @@ def get_custom_fields():
 				"translatable": "0",
 			},
 			{
+				"default": "0",
 				"depends_on": "accept_payment",
+				"fieldname": "currency_based_on_field",
+				"fieldtype": "Check",
+				"label": "Currency Based On Field",
+				"insert_after": "amount"
+			},
+			{
+				"depends_on": "eval:doc.accept_payment && doc.currency_based_on_field",
+				"fieldname": "currency_field",
+				"fieldtype": "Select",
+				"label": "Currency Field",
+				"insert_after": "currency_based_on_field",
+				"translatable": "0",
+			},
+			{
+				"depends_on": "eval:doc.accept_payment && !doc.currency_based_on_field",
 				"fieldname": "currency",
 				"fieldtype": "Link",
 				"label": "Currency",
 				"options": "Currency",
-				"insert_after": "amount"
-			}
+				"insert_after": "currency_field",
+				"translatable": "0",
+			},
 		],
 	}
 
