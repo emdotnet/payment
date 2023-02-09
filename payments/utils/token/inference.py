@@ -58,7 +58,7 @@ def infer_stripe_mode_from_data(*, data: dict, token_handler: "_BaseTokenHandler
 
 	ref_doc = (data.get("reference_doctype"), data.get("reference_docname"))
 	if all(ref_doc) and _is_linked_to_subscription(*ref_doc):
-		return "payment+setup"
+		return "setup"
 
 	# Legacy
 	if data.get("amount"):
