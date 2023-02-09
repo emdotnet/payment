@@ -7,7 +7,9 @@ import stripe
 import frappe
 from frappe import _
 from payments.utils.utils import get_gateway_controller
-from frappe.utils import flt
+from frappe.utils import flt, check_format
+
+from payments.payment_gateways.doctype.stripe_settings.stripe_data_handler import StripeDataHandler
 
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
@@ -16,71 +18,94 @@ from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripePaymentMethod,
 )
 
-expected_keys = (
-	"amount",
-	"title",
-	"description",
-	"reference_doctype",
-	"reference_docname",
-	"payer_name",
-	"payer_email",
-	"order_id",
-	"currency",
-)
-
 def get_context(context):
 	context.no_cache = 1
 
-	if not (set(expected_keys) - set(list(frappe.form_dict))):
-		for key in expected_keys:
-			context[key] = frappe.form_dict[key]
+	try:
+		# Instantiate the class that handles validation and decoding
+		token_handler = StripeDataHandler.FromData(data=frappe.form_dict)
 
-		gateway_controller = get_gateway_controller(
-			context.reference_doctype, context.reference_docname
-		)
-		if not gateway_controller:
-			redirect_to_invalid_link()
+		# Decode and validate the data
+		data = frappe._dict(token_handler.decode())
 
-		reference_document = frappe.get_doc(context.reference_doctype, context.reference_docname)
-	else:
-		redirect_to_invalid_link()
+		# Retrieve the mode (payment or setup)
+		mode = token_handler.get_mode()
+		data.mode = mode
+	except StripeDataHandler.InvalidTokenError:
+		# During decoding, an InvalidTokenError is raised if the data is invalid, and an error is automatically logged.
+		return redirect_to_invalid_link()
+	except Exception as exc:
+		# Log error in case of unexpected error, or if the settings are incorrect.
+		title = "Stripe Checkout: " + repr(exc)
+		frappe.log_error(title[:140], frappe.get_traceback())
+		return redirect_to_invalid_link()
 
-	stripe_settings = frappe.get_cached_doc("Stripe Settings", gateway_controller)
+	# Move data to context (legacy)
+	for key, value in data.items():
+		context[key] = value
+
+	# Set-up API key for Stripe
+	stripe_settings = token_handler.get_controller()
 	stripe.api_key = stripe_settings.get_password("secret_key")
-	customer = reference_document.customer if hasattr(reference_document, 'customer') else reference_document.get("customer")
-	stripe_customer_id = stripe_settings.get_stripe_customer_id(customer) if customer else None
+
+	# Retrieve the customer's Stripe ID if it exists
+	reference_document = frappe.get_doc(data.reference_doctype, data.reference_docname)
+	if hasattr(reference_document, "customer"):
+		# NOTE: Retrieve the customer docname using a @property method (virtual field)
+		customer_docname: str = reference_document.customer
+	else:
+		customer_docname: str | None = reference_document.get("customer")
+	stripe_customer_id = stripe_settings.get_stripe_customer_id(customer_docname) if customer_docname else None
+
+	metadata = {
+		"reference_doctype": data.reference_doctype,
+		"reference_name": data.reference_docname
+	}
+	redirect_urls = {
+		"success": stripe_settings.redirect_url or "/payment-success",
+		# "failure": stripe_settings.failure_redirect_url or "/payment-failed",
+		"cancel": stripe_settings.failure_redirect_url or "/payment-failed",
+	}
+
+	# Setup mode requires a customer
+	customer_api = StripeCustomer(stripe_settings)
+	if mode in ("setup", "payment+setup"):
+		if not stripe_customer_id:
+			if not customer_docname:
+				msg = _("Reference document must have a `customer` field in order to setup Stripe Checkout for future payments.")
+				frappe.log_error(msg[:140], msg, **metadata)
+				return redirect_to_settings_incorrect()
+
+			# Always create a customer if needed
+			stripe_customer_id: str | None = customer_api.create(customer_docname)
+			if not stripe_customer_id:
+				msg = _("Failed to create Stripe customer.")
+				frappe.log_error(msg[:140], msg, **metadata)
+				return redirect_to_settings_incorrect()
+
+		# Create/update Integration References
+		customer_api.register(stripe_customer_id, customer_docname)
+
+		# If an email is already set, the user won't be able to change it on the Stripe Checkout page.
+		# Set to "" to allow the user to specify another one (that only Stripe will know).
+		customer_api.update(stripe_customer_id, email=data.payer_email if check_format(data.payer_email) else "")
 
 	match mode:
-		case "payment":
+		case "payment" | "payment+setup":
+			# Immediate payment
 			checkout_session = stripe_settings.create_payment_checkout_session(
 				customer=stripe_customer_id,
-				customer_email=context.payer_email,
+				customer_email=data.payer_email,
+				item=dict(amount=data.amount, currency=data.currency, description=data.description),
 				metadata=metadata,
-				amount=context.amount,
-				currency=context.currency,
-				description=context.description,
-				payment_success_redirect=stripe_settings.redirect_url or "/payment-success",
-				payment_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed",
+				redirect_urls=redirect_urls,
+				also_setup_future_usage=bool(mode == "payment+setup"),
 			)
 		case "setup":
-			if not customer_docname:
-				frappe.throw(_("Reference document must have a `customer` field in order to complete a `setup` session."))
-
-			customer_api = StripeCustomer(stripe_settings)
-			if not stripe_customer_id:
-				# Always create a customer if needed
-				stripe_customer_id = customer_api.create(customer_docname)
-
-			# Update customer's email address and create/update Integration References
-			# NOTE: If an email is already set, the user won't be able to change it on the Stripe Checkout page
-			customer_api.update(stripe_customer_id, email=context.payer_email)
-			customer_api.register(stripe_customer_id, customer_docname)
-
 			checkout_session = stripe_settings.create_setup_checkout_session(
 				customer=stripe_customer_id,
 				metadata=metadata,
-				setup_success_redirect=stripe_settings.redirect_url or "/payment-success",
-				setup_failure_redirect=stripe_settings.failure_redirect_url or "/payment-failed",
+				redirect_urls=redirect_urls,
 			)
 		case _:
 			raise ValueError("Invalid checkout mode: " + mode)
@@ -88,8 +113,22 @@ def get_context(context):
 	frappe.local.flags.redirect_location = checkout_session.url
 	raise frappe.Redirect
 
+
 def redirect_to_invalid_link() -> NoReturn:
 	frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
+	frappe.local.flags.redirect_location = frappe.local.response.location
+	raise frappe.Redirect
+
+def redirect_to_settings_incorrect() -> NoReturn:
+	"""Show a message to the customer if the admin settings are incorrect.
+	This is a fallback in case the admin has not set up the Stripe settings correctly.
+	"""
+	frappe.redirect_to_message(
+		title=_("Payment Gateway Error"),
+		html=_("The payment gateway is not configured correctly. Please contact us."),
+		http_status_code=500,
+		indicator_color="red",
+	)
 	frappe.local.flags.redirect_location = frappe.local.response.location
 	raise frappe.Redirect
 
@@ -98,11 +137,6 @@ def get_api_key(gateway_controller):
 		return frappe.get_doc("Stripe Settings", gateway_controller).publishable_key
 
 	return gateway_controller.publishable_key
-
-def is_linked_to_subscription(reference_doctype):
-	meta = frappe.get_meta(reference_doctype)
-	if reference_doctype == "Subscription" or [df for df in meta.fields if df.fieldname == "subscription"]:
-		return True
 
 
 @frappe.whitelist(allow_guest=True)

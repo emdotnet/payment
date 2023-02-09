@@ -171,6 +171,8 @@ class StripeSettings(PaymentGatewayController):
 
 	def create_payment_intent(self, reference, customer, amount, currency, description, metadata):
 		payment_method = StripeCustomer(self).get(customer).get("invoice_settings", {}).get("default_payment_method")
+		statement_descriptor = str(reference)[:22]
+
 		payment_intent = (
 			StripePaymentIntent(self, reference).create(
 				amount=round(flt(amount) * 100.0),
@@ -181,6 +183,7 @@ class StripeSettings(PaymentGatewayController):
 				off_session=True,
 				metadata=metadata,
 				payment_method=payment_method,
+				statement_descriptor=statement_descriptor
 			)
 			or {}
 		)
@@ -189,25 +192,43 @@ class StripeSettings(PaymentGatewayController):
 
 		return payment_intent.get("id")
 
-	def create_payment_checkout_session(self, customer, customer_email, amount, currency, description, payment_success_redirect, payment_failure_redirect, metadata):
-		checkout_session = stripe.checkout.Session.create(
-			customer=customer,
-			customer_email=customer_email if check_format(customer_email) else None,
-			line_items=[{
-				'price_data': {
-					'currency': currency,
-					'product_data': {
-						'name': description,
-					},
-					'unit_amount': round(flt(amount) * 100.0),
+	def make_line_item(self, amount, currency, description):
+		return {
+			"price_data": {
+				"currency": currency,
+				"product_data": {
+					"name": description,
 				},
-				'quantity': 1,
-			}],
-			metadata=metadata,
-			payment_intent_data={"metadata": metadata},
+				"unit_amount": round(flt(amount) * 100.0),
+			},
+			"quantity": 1,
+		}
+
+	def create_payment_checkout_session(self, *, customer, customer_email, item, redirect_urls, metadata, also_setup_future_usage=False):
+		payment_intent_data = { "metadata": metadata }
+		more_options = {}
+
+		if also_setup_future_usage:
+			payment_intent_data["setup_future_usage"] = "off_session"
+			# more_options["customer_creation"] = "required"
+			# more_options["consent_collection"] = { "terms_of_service": "required" }
+			custom_text = _("This payment method will be used for subsequent recurring payments.")
+			more_options["custom_text"] = {"submit": {"message": custom_text}}
+			if not customer:
+				raise ValueError("The `customer` parameter is required with also_setup_future_usage=True")
+		else:
+			if check_format(customer_email):
+				more_options["customer_email"] = customer_email
+
+		checkout_session = stripe.checkout.Session.create(
 			mode="payment",
-			success_url=get_url(payment_success_redirect),
-			cancel_url=get_url(payment_failure_redirect),
+			customer=customer,
+			metadata=metadata,
+			line_items=[self.make_line_item(**item)],
+			payment_intent_data=payment_intent_data,
+			success_url=get_url(redirect_urls["success"]),
+			cancel_url=get_url(redirect_urls["cancel"]),
+			**more_options,
 		)
 
 		# NOTE: A PaymentIntent is no longer created during Checkout Session creation in payment mode.
@@ -215,15 +236,15 @@ class StripeSettings(PaymentGatewayController):
 		self.trigger_on_payment_authorized(metadata, payment_intent=None)
 		return checkout_session
 
-	def create_setup_checkout_session(self, customer, setup_success_redirect, setup_failure_redirect, metadata, payment_method_types=["card", "sepa_debit"]):
+	def create_setup_checkout_session(self, *, customer, redirect_urls, metadata, payment_method_types=["card", "sepa_debit"]):
 		checkout_session = stripe.checkout.Session.create(
+			mode="setup",
 			customer=customer,
 			metadata=metadata,
 			setup_intent_data={"metadata": metadata},
-			mode="setup",
-			success_url=get_url(setup_success_redirect),
-			cancel_url=get_url(setup_failure_redirect),
 			payment_method_types=payment_method_types,
+			success_url=get_url(redirect_urls["success"]),
+			cancel_url=get_url(redirect_urls["cancel"]),
 		)
 		return checkout_session
 
