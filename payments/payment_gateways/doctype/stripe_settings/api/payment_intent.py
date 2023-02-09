@@ -8,7 +8,6 @@ class StripePaymentIntent:
 		self.reference = reference
 
 	@handle_idempotency
-	@handle_stripe_errors
 	def create(self, amount, currency, **kwargs):
 		return self.gateway.stripe.PaymentIntent.create(
 			amount=amount,
