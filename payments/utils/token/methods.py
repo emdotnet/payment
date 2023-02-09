@@ -24,7 +24,6 @@ class TokenMethodJWT(_BaseTokenMethod):
 		self.secret = secret
 
 	def encode(self, data: dict) -> str:
-		print("encode", data)
 		return jwt.encode(data, self.secret, algorithm=self.JWT_ALGO)
 
 	def decode(self, tok: str, verify=True) -> dict:

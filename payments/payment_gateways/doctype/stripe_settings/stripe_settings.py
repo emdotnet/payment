@@ -18,6 +18,7 @@ from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripePrice,
 	StripeWebhookEndpoint,
 )
+from payments.payment_gateways.doctype.stripe_settings.stripe_data_handler import StripeDataHandler
 from payments.payment_gateways.doctype.stripe_settings.webhook_events import StripeWebhooksController, StripeSetupWebhooksController
 
 WEBHOOK_ENDPOINT = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
@@ -128,8 +129,16 @@ class StripeSettings(PaymentGatewayController):
 			frappe.throw(_("Invalid currency for invoice item: {0} - {1}").format(item, currency))
 
 	def get_payment_url(self, **kwargs):
+		data = kwargs
+
+		if not data.get("_legacy", None):
+			try:
+				data = StripeDataHandler.generate_query_params(self, data)
+			except Exception:
+				frappe.log_error("Warning: Stripe URL generation failure - Falling back to legacy method", frappe.get_traceback())
+
 		return get_url(
-			"./stripe_checkout?{0}".format(urlencode(kwargs))
+			"./stripe_checkout?{0}".format(urlencode(data))
 		)
 
 	def cancel_subscription(self, **kwargs):
