@@ -7,6 +7,9 @@ import json
 from jwt.utils import base64url_decode, base64url_encode
 import jwt
 
+class InvalidTokenError(Exception):
+	pass
+
 class _BaseTokenMethod:
 	def encode(self, data: dict) -> str:
 		raise NotImplementedError

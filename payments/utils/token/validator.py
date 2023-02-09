@@ -2,21 +2,22 @@ from payments.utils.token.exceptions import MissingKeys, ExtraKeys, MissingValue
 
 class _BaseDataValidator(dict):
 	ALLOW_EXTRA_KEYS = "error"
-	REQUIRED_KEYS: "set[str]" = {}
+	REQUIRED_KEYS: set[str] = {}
+	OPTIONAL_KEYS: set[str] = {}
 
 	def update_outgoing(self, data: dict) -> dict:
 		if self.ALLOW_EXTRA_KEYS in (False, "warn", "error"):
-			extra_keys = set(data.keys()) - set(self.REQUIRED_KEYS)
+			extra_keys = set(data.keys()) - set(self.REQUIRED_KEYS | self.OPTIONAL_KEYS)
 			if extra_keys:
 				if self.ALLOW_EXTRA_KEYS == "error" or self.ALLOW_EXTRA_KEYS is False:
-					raise ExtraKeys(extra_keys, "in: " + repr(data))
+					raise ExtraKeys(extra_keys)
 				elif self.ALLOW_EXTRA_KEYS == "warn":
 					import frappe
-					frappe.log_error(
-						f"Extra keys in data: {extra_keys}. "
+					msg = "\n\n".join((
+						f"Extra keys in data: {extra_keys}. ",
 						f"Data: {data}",
-						"Payments: Extra Keys in Data",
-					)
+					))
+					frappe.log_error("Payments: Warning: Extra keys in data", msg)
 
 		self._check_keys(data)
 		return data
@@ -35,10 +36,10 @@ class _BaseDataValidator(dict):
 				empty_keys.add(k)
 
 		if missing_keys:
-			raise MissingKeys(missing_keys, "in: " + repr(data))
+			raise MissingKeys(missing_keys)
 
 		if empty_keys:
-			raise MissingValues(empty_keys, "in: " + repr(data))
+			raise MissingValues(empty_keys)
 
 class ValidatorForTests(_BaseDataValidator):
 	REQUIRED_KEYS = {

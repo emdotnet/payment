@@ -5,7 +5,7 @@ from payments.utils.token import _BaseDataValidator, _BaseTokenHandler, Validato
 from typing import TYPE_CHECKING, NoReturn
 
 from payments.utils.token.inference import infer_stripe_mode_from_data, infer_stripe_gateway_controller_from_data
-from payments.utils.token.methods import TokenMethodCompressed
+from payments.utils.token.methods import InvalidTokenError, TokenMethodCompressed
 if TYPE_CHECKING:
 	from payments.payment_gateways.doctype.stripe_settings.stripe_settings import StripeSettings
 
@@ -18,25 +18,35 @@ class StripePaymentDataValidator(_BaseDataValidator):
 		"description",
 		"reference_doctype",
 		"reference_docname",
-		"payer_name",
+		# "payer_name",
 		"payer_email",
 		"order_id",
 		"currency",
+	}
+	OPTIONAL_KEYS = {
 		"redirect_to",
+		"payment_key",
+		"payer_name",
+		"mode",
 	}
 
 class StripeSetupDataValidator(_BaseDataValidator):
-	ALLOW_EXTRA_KEYS = True
+	ALLOW_EXTRA_KEYS = "error"
 	REQUIRED_KEYS = {
 		"reference_doctype",
 		"reference_docname",
 		"payer_email",
+	}
+	OPTIONAL_KEYS = {
+		"payment_key",
+		"mode",
 	}
 
 class _StripeTokenHandlerFromController(_BaseTokenHandler):
 	DEFAULT_TOKEN_ENCODER = TokenMethodCompressed
 	VALIDATORS: dict[str, _BaseDataValidator] = {
 		"payment": StripePaymentDataValidator,
+		"payment+setup": StripePaymentDataValidator,
 		"setup": StripeSetupDataValidator,
 		"test": ValidatorForTests,  # NOTE: Only allowed in tests
 	}
@@ -99,3 +109,5 @@ class StripeDataHandler:
 	@classmethod
 	def generate_query_params(cls, stripe_settings: "StripeSettings", data: dict):
 		return cls.FromController(stripe_settings).generate_query_params(data=data)
+
+	InvalidTokenError = InvalidTokenError

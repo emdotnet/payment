@@ -2,7 +2,7 @@ from typing import Literal, TYPE_CHECKING
 
 import frappe
 
-from payments.utils.token.methods import TokenMethodJWT, TokenMethodCompressed
+from payments.utils.token.methods import TokenMethodJWT, TokenMethodCompressed, InvalidTokenError
 from payments.utils.token.exceptions import *
 
 if TYPE_CHECKING:
@@ -48,6 +48,7 @@ class _BaseTokenHandler:
 
 	def decode(self, data: dict) -> dict:
 		"""Decodes a dict of query params into a dict with valid business data
+		A validation step is performed to ensure the data contains the right keys.
 
 		Args:
 				data: The query params to decode, probably including a token
@@ -64,7 +65,7 @@ class _BaseTokenHandler:
 			return inp
 		except frappe.ValidationError as exc:
 			self.log_invalid_url(data=data, exc=exc)
-			raise
+			raise InvalidTokenError(data) from exc
 
 	def encode(self, data: dict) -> dict:
 		"""Transform a dict with business data into a dict of query params.
@@ -79,7 +80,7 @@ class _BaseTokenHandler:
 		out = self.get_validator(data).update_outgoing(data) or data
 		token = self._encode_to_token(out)
 		if token:
-			out = { "token": token }
+			out = { "token": token }  # The `token` must be the only key in the dict
 		return out
 
 	def log_invalid_url(self, data: dict, exc: Exception = None, title="Invalid URL"):
@@ -109,17 +110,18 @@ def _get_token_debug_info(token_handler: _BaseTokenHandler, data: dict):
 		return {"error": "No token"}
 	raise NotImplementedError
 
-def _log_invalid_url(url: str, token_handler: _BaseTokenHandler, data: dict, exc: Exception, title="Invalid URL"):
+def _log_invalid_url(url: str, token_handler: _BaseTokenHandler, data: dict, exc: Exception, title=""):
+	title = title or frappe._("Invalid token URL")
 	msg = "\n\n".join((
-		frappe._(title),
+		title,
 		url,
 		"Error: " + repr(exc),
+		"Source data: " + frappe.as_json(data),
+		"Token handler: " + repr(token_handler),
+		"Token debug info: " + frappe.as_json(_get_token_debug_info(token_handler, data)),
 		"Stacktrace: " + frappe.get_traceback(),
-		"Data: " + frappe.as_json(data),
-		"Token Handler: " + repr(token_handler),
-		"Token Debug Info: " + frappe.as_json(_get_token_debug_info(token_handler, data)),
 	))
-	frappe.log_error(frappe._(title), msg)
+	frappe.log_error(title[:140], msg)
 
 class UnsafeTokenHandler(_BaseTokenHandler):
 	def get_secret(self) -> str:
