@@ -64,7 +64,7 @@ def get_context(context):
 	redirect_urls = {
 		"success": stripe_settings.redirect_url or "/payment-success",
 		# "failure": stripe_settings.failure_redirect_url or "/payment-failed",
-		"cancel": stripe_settings.failure_redirect_url or "/payment-failed",
+		"cancel": stripe_settings.failure_redirect_url or "/payment-cancel",
 	}
 
 	# Setup mode requires a customer
@@ -89,6 +89,8 @@ def get_context(context):
 		# If an email is already set, the user won't be able to change it on the Stripe Checkout page.
 		# Set to "" to allow the user to specify another one (that only Stripe will know).
 		customer_api.update(stripe_customer_id, email=data.payer_email if check_format(data.payer_email) else "")
+	elif not stripe_customer_id:
+		stripe_customer_id = stripe_settings.get_stripe_customer_id(customer_docname)
 
 	match mode:
 		case "payment" | "payment+setup":

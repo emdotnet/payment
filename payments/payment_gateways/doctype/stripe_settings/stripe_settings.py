@@ -218,7 +218,7 @@ class StripeSettings(PaymentGatewayController):
 			if not customer:
 				raise ValueError("The `customer` parameter is required with also_setup_future_usage=True")
 		else:
-			if check_format(customer_email):
+			if not customer and check_format(customer_email):
 				more_options["customer_email"] = customer_email
 
 		checkout_session = stripe.checkout.Session.create(

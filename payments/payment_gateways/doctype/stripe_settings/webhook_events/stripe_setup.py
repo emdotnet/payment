@@ -56,7 +56,7 @@ class StripeSetupWebhooksController(BaseStripeWebhooksController):
 			response = f"Updated default payment method for customer '{stripe_customer_id}' to '{payment_method}'"
 
 		try:
-			if status := STATUS_MAP.get(type, None):
+			if status := self.STATUS_MAP.get(type, None):
 				reference_document = self.get_reference_document()
 				response = reference_document.run_method("on_payment_authorized", status=status, reference_no=None) or response
 			self.success(response)
