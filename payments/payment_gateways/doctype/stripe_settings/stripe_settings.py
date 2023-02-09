@@ -41,14 +41,6 @@ class StripeSettings(PaymentGatewayController):
 		"SGD": 0.50,
 	}
 
-	enabled_events = [
-		"payment_intent.created",
-		"payment_intent.canceled",
-		"payment_intent.payment_failed",
-		"payment_intent.processing",
-		"payment_intent.succeeded",
-	]
-
 	def __init__(self, *args, **kwargs):
 		super(StripeSettings, self).__init__(*args, **kwargs)
 		if not self.is_new():
@@ -274,7 +266,7 @@ def handle_webhooks(**kwargs):
 
 	if integration_request.service_document in ["charge", "payment_intent", "invoice", "checkout"]:
 		StripeWebhooksController(**kwargs)
-	elif integration_request.service_document in ["setup_intent", "payment_method", "customer"]:
+	elif integration_request.service_document in ["setup_intent"]:
 		StripeSetupWebhooksController(**kwargs)
 	else:
 		integration_request.handle_failure({"message": _("This type of event is not handled")}, "Not Handled")
@@ -292,8 +284,18 @@ def create_delete_webhooks(settings, action="create"):
 
 
 def create_webhooks(stripe_settings, url):
+	webhook_controllers: list = [
+		StripeWebhooksController,
+		StripeSetupWebhooksController,
+	]
+	enabled_events: set[str] = set()
+	for controller_cls in webhook_controllers:
+		# TODO: Maybe throw if duplicate events are added
+		enabled_events.update(controller_cls.get_handled_events())
+	enabled_events = list(sorted(enabled_events))
+
 	try:
-		result = StripeWebhookEndpoint(stripe_settings).create(url, stripe_settings.enabled_events)
+		result = StripeWebhookEndpoint(stripe_settings).create(url, enabled_events)
 		if result:
 			frappe.db.set_value(
 				"Stripe Settings", stripe_settings.name, "webhook_secret_key", result.get("secret")
