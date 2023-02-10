@@ -158,7 +158,7 @@ def get_custom_fields():
 			},
 			# Amount and currency section
 			{
-				"depends_on": "eval:doc.accept_payment && doc.payment_type.match(/immediate|initial/i)",
+				"depends_on": "eval:doc.accept_payment && (typeof doc.payment_type !== 'string' || doc.payment_type.match(/immediate|initial/i))",
 				"fieldname": "payments_amount_section",
 				"fieldtype": "Section Break",
 				"insert_after": "payment_type"
