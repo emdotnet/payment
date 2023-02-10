@@ -1,1 +1,2 @@
+[post_model_sync]
 payments.patches.v1_0.update_stripe_webhooks
