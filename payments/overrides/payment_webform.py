@@ -19,7 +19,7 @@ class PaymentWebForm(WebForm):
 
 	def validate_ref_doctype_fields(self):
 		meta = frappe.get_meta(self.doc_type)
-		required_fields = ["payment_gateway"]
+		required_fields = ["payment_gateway", "customer"]
 		for field in required_fields:
 			if not meta.has_field(field):
 				frappe.throw(_(
