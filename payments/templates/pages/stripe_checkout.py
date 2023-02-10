@@ -72,7 +72,7 @@ def get_context(context):
 	if mode in ("setup", "payment+setup"):
 		if not stripe_customer_id:
 			if not customer_docname:
-				msg = _("Reference document must have a `customer` field in order to setup Stripe Checkout for future payments.")
+				msg = _("Reference document must have a value for the `{0}` field in order to setup Stripe Checkout for future payments.").format("customer")
 				frappe.log_error(msg[:140], msg, **metadata)
 				return redirect_to_settings_incorrect()
 
