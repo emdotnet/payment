@@ -77,24 +77,31 @@ class PaymentWebForm(WebForm):
 		return False  # web form does not accept payments
 
 	def webform_validate_doc(self, doc):
+		if not self.has_payments_enabled(doc):
+			return super().webform_validate_doc(doc)
+
+		# Set payment gateway
+		meta = frappe.get_meta(doc.doctype)
+		if meta.has_field("payment_gateway"):
+			doc.payment_gateway = self.payment_gateway
+
+		# Partially validate document
 		doc.flags.in_payment_webform = True
 		super().webform_validate_doc(doc)
 
-		if self.has_payments_enabled(doc):
-			meta = frappe.get_meta(doc.doctype)
-			if meta.has_field("payment_gateway"):
-				doc.payment_gateway = self.payment_gateway
-			doc.run_method("validate_payment")
+		doc.run_method("validate_payment")
 
 	def webform_accept_doc(self, doc):
+		if not self.has_payments_enabled(doc):
+			return super().webform_accept_doc(doc)
+
+		# Accept document
 		doc.flags.in_payment_webform = True
-		original_result = super().webform_accept_doc(doc)
+		super().webform_accept_doc(doc)
 
-		if self.has_payments_enabled(doc):
-			redirect_url = self.get_payment_gateway_url(doc)
-			return { "redirect": redirect_url }
-
-		return original_result
+		# Redirect to payment page
+		redirect_url: str = self.get_payment_gateway_url(doc)
+		return { "redirect": redirect_url }
 
 	def get_currency(self, doc):
 		if self.currency_based_on_field:
