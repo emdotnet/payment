@@ -8,7 +8,6 @@ class StripePaymentIntent:
 		self.reference = reference
 
 	@handle_idempotency
-	@handle_stripe_errors
 	def create(self, amount, currency, **kwargs):
 		return self.gateway.stripe.PaymentIntent.create(
 			amount=amount,
@@ -16,10 +15,6 @@ class StripePaymentIntent:
 			idempotency_key=IdempotencyKey("payment_intent", "create", self.reference).get(),
 			**kwargs
 		)
-
-	@handle_stripe_errors
-	def retrieve(self, id, client_secret):
-		return self.gateway.stripe.PaymentIntent.retrieve(id, client_secret=client_secret)
 
 	@handle_stripe_errors
 	def update(self, id, **kwargs):
