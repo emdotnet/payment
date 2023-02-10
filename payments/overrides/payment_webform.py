@@ -67,16 +67,17 @@ class PaymentWebForm(WebForm):
 		payment_type = self.PAYMENT_TYPES.get(self.payment_type, "immediate")
 		return payment_type
 
-	def has_payments_enabled(self, doc):
+	def has_payments_enabled(self, doc=None):
 		if self.get_payment_type():
 			# Legacy: could be removed in future (unused in Dokos/Dodock)
-			if frappe.get_meta(doc.doctype).has_field("paid") and doc.paid:
+			if doc and frappe.get_meta(doc.doctype).has_field("paid") and doc.paid:
 				return False  # document already paid
 
 			return True  # web form accepts payments
 		return False  # web form does not accept payments
 
 	def webform_validate_doc(self, doc):
+		doc.flags.in_payment_webform = True
 		super().webform_validate_doc(doc)
 
 		if self.has_payments_enabled(doc):
@@ -86,6 +87,7 @@ class PaymentWebForm(WebForm):
 			doc.run_method("validate_payment")
 
 	def webform_accept_doc(self, doc):
+		doc.flags.in_payment_webform = True
 		original_result = super().webform_accept_doc(doc)
 
 		if self.has_payments_enabled(doc):
