@@ -128,11 +128,24 @@ class StripeSettings(PaymentGatewayController):
 		except stripe.error.InvalidRequestError:
 			frappe.throw(_("Invalid currency for invoice item: {0} - {1}").format(item, currency))
 
+	def get_stripe_mode_from_payment_type(self, payment_type):
+		if payment_type == "immediate":
+			return "payment"
+		elif payment_type == "offline":
+			return "setup"
+		elif payment_type == "immediate+offline":
+			return "payment+setup"
+		else:
+			frappe.throw(_("Invalid payment type: {0}").format(payment_type))
+
 	def get_payment_url(self, **kwargs):
 		data = kwargs
 
 		if not data.get("_legacy", None):
 			try:
+				if payment_type := data.get("_payment_type"):
+					data["mode"] = self.get_stripe_mode_from_payment_type(payment_type)
+					del data["_payment_type"]
 				data = StripeDataHandler.generate_query_params(self, data)
 			except Exception:
 				frappe.log_error("Warning: Stripe URL generation failure - Falling back to legacy method", frappe.get_traceback())

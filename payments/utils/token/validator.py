@@ -7,7 +7,8 @@ class _BaseDataValidator(dict):
 
 	def update_outgoing(self, data: dict) -> dict:
 		if self.ALLOW_EXTRA_KEYS in (False, "warn", "error"):
-			extra_keys = set(data.keys()) - set(self.REQUIRED_KEYS | self.OPTIONAL_KEYS)
+			expected_keys = set(self.REQUIRED_KEYS | self.OPTIONAL_KEYS | {"_payment_type"})
+			extra_keys = set(data.keys()) - expected_keys
 			if extra_keys:
 				if self.ALLOW_EXTRA_KEYS == "error" or self.ALLOW_EXTRA_KEYS is False:
 					raise ExtraKeys(extra_keys)

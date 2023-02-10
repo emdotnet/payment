@@ -128,13 +128,98 @@ def get_custom_fields():
 				"label": "Accept Payment",
 				"insert_after": "payments_tab"
 			},
+			# Payment options section
 			{
 				"depends_on": "accept_payment",
+				"fieldname": "payments_sb01",
+				"fieldtype": "Section Break",
+				"insert_after": "accept_payment"
+			},
+			{
 				"fieldname": "payment_gateway",
 				"fieldtype": "Link",
 				"label": "Payment Gateway",
 				"options": "Payment Gateway",
-				"insert_after": "accept_payment"
+				"insert_after": "payments_sb01"
+			},
+			{
+				"fieldname": "payments_cb01",
+				"fieldtype": "Column Break",
+				"insert_after": "payment_gateway"
+			},
+			{
+				"default": "Immediate payment",
+				"fieldname": "payment_type",
+				"fieldtype": "Select",
+				"label": "Payment Type",
+				"options": "Immediate payment\nAutomatic payments\nInitial payment followed by automatic payments",
+				"insert_after": "payments_cb01",
+				"translatable": "0",
+			},
+			# Amount and currency section
+			{
+				"depends_on": "eval:doc.accept_payment && (typeof doc.payment_type !== 'string' || doc.payment_type.match(/immediate|initial/i))",
+				"fieldname": "payments_amount_section",
+				"fieldtype": "Section Break",
+				"insert_after": "payment_type"
+			},
+			{
+				"default": "0",
+				"fieldname": "amount_based_on_field",
+				"fieldtype": "Check",
+				"label": "Amount Based On Field",
+				"insert_after": "payments_amount_section"
+			},
+			{
+				"depends_on": "eval:doc.amount_based_on_field",
+				"fieldname": "amount_field",
+				"fieldtype": "Select",
+				"label": "Amount Field",
+				"insert_after": "amount_based_on_field",
+				"translatable": "0",
+			},
+			{
+				"depends_on": "eval:!doc.amount_based_on_field",
+				"fieldname": "amount",
+				"fieldtype": "Currency",
+				"label": "Amount",
+				"insert_after": "amount_field",
+				"translatable": "0",
+			},
+			{
+				"fieldname": "payments_cb02",
+				"fieldtype": "Column Break",
+				"insert_after": "amount"
+			},
+			{
+				"default": "0",
+				"fieldname": "currency_based_on_field",
+				"fieldtype": "Check",
+				"label": "Currency Based On Field",
+				"insert_after": "payments_cb02"
+			},
+			{
+				"depends_on": "eval:doc.currency_based_on_field",
+				"fieldname": "currency_field",
+				"fieldtype": "Select",
+				"label": "Currency Field",
+				"insert_after": "currency_based_on_field",
+				"translatable": "0",
+			},
+			{
+				"depends_on": "eval:!doc.currency_based_on_field",
+				"fieldname": "currency",
+				"fieldtype": "Link",
+				"label": "Currency",
+				"options": "Currency",
+				"insert_after": "currency_field",
+				"translatable": "0",
+			},
+			# Misc section
+			{
+				"fieldname": "payments_misc_section",
+				"fieldtype": "Section Break",
+				"insert_after": "currency"
 			},
 			{
 				"default": "Pay now",
@@ -152,43 +237,6 @@ def get_custom_fields():
 				"label": "Button Help",
 				"insert_after": "payment_button_label"
 			},
-			{
-				"fieldname": "payments_cb",
-				"fieldtype": "Column Break",
-				"insert_after": "payment_button_help"
-			},
-			{
-				"default": "0",
-				"depends_on": "accept_payment",
-				"fieldname": "amount_based_on_field",
-				"fieldtype": "Check",
-				"label": "Amount Based On Field",
-				"insert_after": "payments_cb"
-			},
-			{
-				"depends_on": "eval:doc.accept_payment && doc.amount_based_on_field",
-				"fieldname": "amount_field",
-				"fieldtype": "Select",
-				"label": "Amount Field",
-				"insert_after": "amount_based_on_field",
-				"translatable": "0",
-			},
-			{
-				"depends_on": "eval:doc.accept_payment && !doc.amount_based_on_field",
-				"fieldname": "amount",
-				"fieldtype": "Currency",
-				"label": "Amount",
-				"insert_after": "amount_field",
-				"translatable": "0",
-			},
-			{
-				"depends_on": "accept_payment",
-				"fieldname": "currency",
-				"fieldtype": "Link",
-				"label": "Currency",
-				"options": "Currency",
-				"insert_after": "amount"
-			}
 		],
 	}
 
