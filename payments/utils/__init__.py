@@ -3,5 +3,5 @@ from payments.utils.utils import ( # noqa
 	create_payment_gateway,
 	delete_custom_fields,
 	get_payment_gateway_controller,
-	after_install,
+	after_migrate,
 )

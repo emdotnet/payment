@@ -1,7 +1,52 @@
 import click
+from urllib.parse import urlencode
+
 import frappe
 from frappe import _
+from frappe.model.document import Document
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+
+class PaymentGatewayController(Document):
+	def finalize_request(self, reference_no=None):
+		redirect_to = self.data.get("redirect_to")
+		redirect_message = self.data.get("redirect_message")
+
+		if (
+			self.flags.status_changed_to in ["Completed", "Autorized", "Pending"]
+			and self.reference_document
+		):
+			custom_redirect_to = None
+			try:
+				custom_redirect_to = self.reference_document.run_method(
+					"on_payment_authorized", self.flags.status_changed_to, reference_no
+				)
+			except Exception:
+				frappe.log_error(frappe.get_traceback(), _("Payment custom redirect error"))
+
+			if custom_redirect_to and custom_redirect_to != "no-redirection":
+				redirect_to = custom_redirect_to
+
+			redirect_url = self.redirect_url if self.get("redirect_url") else "/payment-success"
+
+		else:
+			redirect_url = "/payment-failed"
+
+		if redirect_to and redirect_to != "no-redirection":
+			redirect_url += "?" + urlencode({"redirect_to": redirect_to})
+		if redirect_message:
+			redirect_url += "&" + urlencode({"redirect_message": redirect_message})
+
+		return {"redirect_to": redirect_url, "status": self.integration_request.status}
+
+	def change_integration_request_status(self, status, error_type, error):
+		if hasattr(self, "integration_request"):
+			self.flags.status_changed_to = status
+			self.integration_request.db_set("status", status, update_modified=True)
+			self.integration_request.db_set(error_type, error, update_modified=True)
+
+		if hasattr(self, "update_reference_document_status"):
+			self.update_reference_document_status(status)
 
 
 def get_payment_gateway_controller(payment_gateway):
@@ -17,6 +62,14 @@ def get_payment_gateway_controller(payment_gateway):
 			return frappe.get_doc(gateway.gateway_settings, gateway.gateway_controller)
 		except Exception:
 			frappe.throw(_("{0} Settings not found").format(payment_gateway))
+
+
+def get_gateway_controller(doctype, docname):
+	payment_gateway = frappe.db.get_value(doctype, docname, "payment_gateway")
+	gateway_controller = frappe.db.get_value(
+		"Payment Gateway", payment_gateway, "gateway_controller"
+	)
+	return gateway_controller
 
 
 @frappe.whitelist(allow_guest=True, xss_safe=True)
@@ -51,91 +104,141 @@ def create_payment_gateway(gateway, settings=None, controller=None):
 		)
 		payment_gateway.insert(ignore_permissions=True)
 
-def after_install():
+def after_migrate():
 	make_custom_fields()
-	patch_erpnext_webhooks_url()
 
 def make_custom_fields():
-	if not frappe.get_meta("Web Form").has_field("payments_tab"):
-		click.secho("* Installing Payment Custom Fields in Web Form")
+	click.secho("* Updating Payment Custom Fields in Web Form")
+	create_custom_fields(get_custom_fields())
+	frappe.clear_cache(doctype="Web Form")
 
-		create_custom_fields({
-			'Web Form': [
-				{
-					"fieldname": "payments_tab",
-					"fieldtype": "Tab Break",
-					"label": "Payments",
-					"insert_after": "custom_css"
-				},
-				{
-					"default": "0",
-					"fieldname": "accept_payment",
-					"fieldtype": "Check",
-					"label": "Accept Payment",
-					"insert_after": "payments"
-				},
-				{
-					"depends_on": "accept_payment",
-					"fieldname": "payment_gateway",
-					"fieldtype": "Link",
-					"label": "Payment Gateway",
-					"options": "Payment Gateway",
-					"insert_after": "accept_payment"
-				},
-				{
-					"default": "Buy Now",
-					"depends_on": "accept_payment",
-					"fieldname": "payment_button_label",
-					"fieldtype": "Data",
-					"label": "Button Label",
-					"insert_after": "payment_gateway"
-				},
-				{
-					"depends_on": "accept_payment",
-					"fieldname": "payment_button_help",
-					"fieldtype": "Text",
-					"label": "Button Help",
-					"insert_after": "payment_button_label"
-				},
-				{
-					"fieldname": "payments_cb",
-					"fieldtype": "Column Break",
-					"insert_after": "payment_button_help"
-				},
-				{
-					"default": "0",
-					"depends_on": "accept_payment",
-					"fieldname": "amount_based_on_field",
-					"fieldtype": "Check",
-					"label": "Amount Based On Field",
-					"insert_after": "payments_cb"
-				},
-				{
-					"depends_on": "eval:doc.accept_payment && doc.amount_based_on_field",
-					"fieldname": "amount_field",
-					"fieldtype": "Select",
-					"label": "Amount Field",
-					"insert_after": "amount_based_on_field"
-				},
-				{
-					"depends_on": "eval:doc.accept_payment && !doc.amount_based_on_field",
-					"fieldname": "amount",
-					"fieldtype": "Currency",
-					"label": "Amount",
-					"insert_after": "amount_field"
-				},
-				{
-					"depends_on": "accept_payment",
-					"fieldname": "currency",
-					"fieldtype": "Link",
-					"label": "Currency",
-					"options": "Currency",
-					"insert_after": "amount"
-				}
-			]
-		})
-
-		frappe.clear_cache(doctype="Web Form")
+def get_custom_fields():
+	return {
+		'Web Form': [
+			{
+				"fieldname": "payments_tab",
+				"fieldtype": "Tab Break",
+				"label": "Payments",
+				"insert_after": "custom_css"
+			},
+			{
+				"default": "0",
+				"fieldname": "accept_payment",
+				"fieldtype": "Check",
+				"label": "Accept Payment",
+				"insert_after": "payments_tab"
+			},
+			# Payment options section
+			{
+				"depends_on": "accept_payment",
+				"fieldname": "payments_sb01",
+				"fieldtype": "Section Break",
+				"insert_after": "accept_payment"
+			},
+			{
+				"fieldname": "payment_gateway",
+				"fieldtype": "Link",
+				"label": "Payment Gateway",
+				"options": "Payment Gateway",
+				"insert_after": "payments_sb01"
+			},
+			{
+				"fieldname": "payments_cb01",
+				"fieldtype": "Column Break",
+				"insert_after": "payment_gateway"
+			},
+			{
+				"default": "Immediate payment",
+				"fieldname": "payment_type",
+				"fieldtype": "Select",
+				"label": "Payment Type",
+				"options": "Immediate payment\nAutomatic payments\nInitial payment followed by automatic payments",
+				"insert_after": "payments_cb01",
+				"translatable": "0",
+			},
+			# Amount and currency section
+			{
+				"depends_on": "eval:doc.accept_payment && (typeof doc.payment_type !== 'string' || doc.payment_type.match(/immediate|initial/i))",
+				"fieldname": "payments_amount_section",
+				"fieldtype": "Section Break",
+				"insert_after": "payment_type"
+			},
+			{
+				"default": "0",
+				"fieldname": "amount_based_on_field",
+				"fieldtype": "Check",
+				"label": "Amount Based On Field",
+				"insert_after": "payments_amount_section"
+			},
+			{
+				"depends_on": "eval:doc.amount_based_on_field",
+				"fieldname": "amount_field",
+				"fieldtype": "Select",
+				"label": "Amount Field",
+				"insert_after": "amount_based_on_field",
+				"translatable": "0",
+			},
+			{
+				"depends_on": "eval:!doc.amount_based_on_field",
+				"fieldname": "amount",
+				"fieldtype": "Currency",
+				"label": "Amount",
+				"insert_after": "amount_field",
+				"translatable": "0",
+			},
+			{
+				"fieldname": "payments_cb02",
+				"fieldtype": "Column Break",
+				"insert_after": "amount"
+			},
+			{
+				"default": "0",
+				"fieldname": "currency_based_on_field",
+				"fieldtype": "Check",
+				"label": "Currency Based On Field",
+				"insert_after": "payments_cb02"
+			},
+			{
+				"depends_on": "eval:doc.currency_based_on_field",
+				"fieldname": "currency_field",
+				"fieldtype": "Select",
+				"label": "Currency Field",
+				"insert_after": "currency_based_on_field",
+				"translatable": "0",
+			},
+			{
+				"depends_on": "eval:!doc.currency_based_on_field",
+				"fieldname": "currency",
+				"fieldtype": "Link",
+				"label": "Currency",
+				"options": "Currency",
+				"insert_after": "currency_field",
+				"translatable": "0",
+			},
+			# Misc section
+			{
+				"fieldname": "payments_misc_section",
+				"fieldtype": "Section Break",
+				"insert_after": "currency"
+			},
+			{
+				"default": "Pay now",
+				"depends_on": "accept_payment",
+				"fieldname": "payment_button_label",
+				"fieldtype": "Data",
+				"label": "Button Label",
+				"insert_after": "payment_gateway",
+				"translatable": "1",
+			},
+			{
+				"depends_on": "accept_payment",
+				"fieldname": "payment_button_help",
+				"fieldtype": "Text",
+				"label": "Button Help",
+				"insert_after": "payment_button_label"
+			},
+		],
+	}
 
 
 def delete_custom_fields():
@@ -159,24 +262,6 @@ def delete_custom_fields():
 			frappe.db.delete("Custom Field", {"name": "Web Form-" + fieldname})
 
 		frappe.clear_cache(doctype="Web Form")
-
-def patch_erpnext_webhooks_url():
-	# TODO: Remove this after v3
-	from payments.payment_gateways.doctype.stripe_settings.stripe_settings import create_delete_webhooks, delete_webhooks
-	from payments.payment_gateways.doctype.stripe_settings.api import StripeWebhookEndpoint
-
-	if frappe.conf.mute_payment_gateways:
-		return
-
-	for stripe_settings in frappe.get_all("Stripe Settings"):
-		print(f"Updating Webhook URL for Stripe settings: {stripe_settings.name}")
-		doc = frappe.get_doc("Stripe Settings", stripe_settings.name)
-		endpoint = "/api/method/erpnext.erpnext_integrations.doctype.stripe_settings.webhooks?account="
-		url = f"{frappe.utils.get_url(endpoint)}{stripe_settings.name}"
-		webhooks_list = StripeWebhookEndpoint(doc).get_all()
-		if doc.publishable_key and doc.secret_key and webhooks_list:
-			delete_webhooks(doc, url)
-			create_delete_webhooks(doc.name, "create")
 
 def before_install():
 	# TODO: remove this

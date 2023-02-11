@@ -1,106 +1,138 @@
 # Copyright (c) 2022, Dokos SAS and Contributors
 # License: GNU General Public License v3. See license.txt
 
-from datetime import datetime
+from typing import NoReturn
+import stripe
 
 import frappe
 from frappe import _
-from frappe.integrations.utils import get_gateway_controller
-from frappe.utils import cint, flt, fmt_money, get_datetime, getdate, nowdate
+from payments.utils.utils import get_gateway_controller
+from frappe.utils import flt, check_format
 
-# TODO: Move to hook
-from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
+from payments.payment_gateways.doctype.stripe_settings.stripe_data_handler import StripeDataHandler
+
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
 	StripeInvoice,
 	StripePaymentIntent,
 	StripePaymentMethod,
-	StripeSubscription,
 )
-
-expected_keys = (
-	"amount",
-	"title",
-	"description",
-	"reference_doctype",
-	"reference_docname",
-	"webform",
-	"payer_name",
-	"payer_email",
-	"order_id",
-	"currency",
-	"redirect_to"
-)
-
 
 def get_context(context):
 	context.no_cache = 1
-	context.lang = frappe.local.lang
 
-	if frappe.db.exists(
-		"Payment Request", {"payment_key": frappe.form_dict.get("key"), "docstatus": 1}
-	):
-		payment_request = frappe.get_doc("Payment Request", {"payment_key": frappe.form_dict.get("key")})
+	try:
+		# Instantiate the class that handles validation and decoding
+		token_handler = StripeDataHandler.FromData(data=frappe.form_dict)
 
-		if payment_request.status in ("Paid", "Completed", "Cancelled"):
-			frappe.redirect_to_message(
-				_("Already paid"),
-				_("This payment has already been done.<br>Please contact us if you have any question."),
-			)
-			frappe.local.flags.redirect_location = frappe.local.response.location
-			raise frappe.Redirect
+		# Decode and validate the data
+		data = frappe._dict(token_handler.decode())
 
-		gateway_controller = frappe.get_doc(
-			"Stripe Settings", get_gateway_controller(payment_request.doctype, payment_request.name)
-		)
+		# Retrieve the mode (payment or setup)
+		mode = token_handler.get_mode()
+		data.mode = mode
+	except StripeDataHandler.InvalidTokenError:
+		# During decoding, an InvalidTokenError is raised if the data is invalid, and an error is automatically logged.
+		return redirect_to_invalid_link()
+	except Exception as exc:
+		# Log error in case of unexpected error, or if the settings are incorrect.
+		title = "Stripe Checkout: " + repr(exc)
+		frappe.log_error(title[:140], frappe.get_traceback())
+		return redirect_to_invalid_link()
 
-		customer_id = payment_request.get_customer()
-		context.customer = (
-			StripeCustomer(gateway_controller).get_or_create(customer_id).get("id") if customer_id else ""
-		)
+	# Move data to context (legacy)
+	for key, value in data.items():
+		context[key] = value
 
-		context.publishable_key = gateway_controller.publishable_key
-		context.payment_key = frappe.form_dict.get("key")
-		context.image = gateway_controller.header_img
-		context.description = payment_request.subject
-		context.payer_name = (
-			frappe.db.get_value("Customer", customer_id, "customer_name") if customer_id else ""
-		)
-		context.payer_email = payment_request.email_to or (
-			frappe.session.user if frappe.session.user != "Guest" else ""
-		)
-		context.amount = fmt_money(amount=payment_request.grand_total, currency=payment_request.currency)
-		context.is_subscription = (
-			1
-			if (
-				payment_request.is_linked_to_a_subscription()
-				and cint(gateway_controller.subscription_cycle_on_stripe)
-			)
-			else 0
-		)
-		context.payment_success_redirect = gateway_controller.redirect_url or "/payment-success"
-		context.payment_failure_redirect = gateway_controller.failure_redirect_url or "/payment-failed"
+	# Set-up API key for Stripe
+	stripe_settings = token_handler.get_controller()
+	stripe.api_key = stripe_settings.get_password("secret_key")
 
-	elif not (set(expected_keys) - set(list(frappe.form_dict))):
-		for key in expected_keys:
-			context[key] = frappe.form_dict[key]
-
-		gateway_controller = frappe.get_doc(
-			"Stripe Settings", get_gateway_controller("Web Form", context.webform)
-		)
-		context.publishable_key = get_api_key(gateway_controller)
-		context.image = gateway_controller.header_img
-		context.is_subscription = 0
-		context.payment_success_redirect = gateway_controller.redirect_url or "/payment-success"
-		context.payment_failure_redirect = gateway_controller.failure_redirect_url or "/payment-failed"
-		context.grand_total = context["amount"]
-		context.amount = fmt_money(amount=context["amount"], currency=context["currency"])
-
+	# Retrieve the customer's Stripe ID if it exists
+	reference_document = frappe.get_doc(data.reference_doctype, data.reference_docname)
+	if hasattr(reference_document, "customer"):
+		# NOTE: Retrieve the customer docname using a @property method (virtual field)
+		customer_docname: str = reference_document.customer
 	else:
-		frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
-		frappe.local.flags.redirect_location = frappe.local.response.location
-		raise frappe.Redirect
+		customer_docname: str | None = reference_document.get("customer")
+	stripe_customer_id = stripe_settings.get_stripe_customer_id(customer_docname) if customer_docname else None
 
+	metadata = {
+		"reference_doctype": data.reference_doctype,
+		"reference_name": data.reference_docname
+	}
+	redirect_urls = {
+		"success": stripe_settings.redirect_url or "/payment-success",
+		# "failure": stripe_settings.failure_redirect_url or "/payment-failed",
+		"cancel": stripe_settings.failure_redirect_url or "/payment-cancel",
+	}
+
+	# Setup mode requires a customer
+	customer_api = StripeCustomer(stripe_settings)
+	if mode in ("setup", "payment+setup"):
+		if not stripe_customer_id:
+			if not customer_docname:
+				msg = _("Reference document must have a value for the `{0}` field in order to setup Stripe Checkout for future payments.").format("customer")
+				frappe.log_error(msg[:140], msg, **metadata)
+				return redirect_to_settings_incorrect()
+
+			# Always create a customer if needed
+			stripe_customer_id: str | None = customer_api.create(customer_docname)
+			if not stripe_customer_id:
+				msg = _("Failed to create Stripe customer.")
+				frappe.log_error(msg[:140], msg, **metadata)
+				return redirect_to_settings_incorrect()
+
+		# Create/update Integration References
+		customer_api.register(stripe_customer_id, customer_docname)
+
+		# If an email is already set, the user won't be able to change it on the Stripe Checkout page.
+		# Set to "" to allow the user to specify another one (that only Stripe will know).
+		customer_api.update(stripe_customer_id, email=data.payer_email if check_format(data.payer_email) else "")
+	elif not stripe_customer_id:
+		stripe_customer_id = stripe_settings.get_stripe_customer_id(customer_docname)
+
+	match mode:
+		case "payment" | "payment+setup":
+			# Immediate payment
+			checkout_session = stripe_settings.create_payment_checkout_session(
+				customer=stripe_customer_id,
+				customer_email=data.payer_email,
+				item=dict(amount=data.amount, currency=data.currency, description=data.description),
+				metadata=metadata,
+				redirect_urls=redirect_urls,
+				also_setup_future_usage=bool(mode == "payment+setup"),
+			)
+		case "setup":
+			checkout_session = stripe_settings.create_setup_checkout_session(
+				customer=stripe_customer_id,
+				metadata=metadata,
+				redirect_urls=redirect_urls,
+			)
+		case _:
+			raise ValueError("Invalid checkout mode: " + mode)
+
+	frappe.local.flags.redirect_location = checkout_session.url
+	raise frappe.Redirect
+
+
+def redirect_to_invalid_link() -> NoReturn:
+	frappe.redirect_to_message(_("Invalid link"), _("This link is not valid.<br>Please contact us."))
+	frappe.local.flags.redirect_location = frappe.local.response.location
+	raise frappe.Redirect
+
+def redirect_to_settings_incorrect() -> NoReturn:
+	"""Show a message to the customer if the admin settings are incorrect.
+	This is a fallback in case the admin has not set up the Stripe settings correctly.
+	"""
+	frappe.redirect_to_message(
+		title=_("Payment Gateway Error"),
+		html=_("The payment gateway is not configured correctly. Please contact us."),
+		http_status_code=500,
+		indicator_color="red",
+	)
+	frappe.local.flags.redirect_location = frappe.local.response.location
+	raise frappe.Redirect
 
 def get_api_key(gateway_controller):
 	if isinstance(gateway_controller, str):
@@ -150,7 +182,7 @@ def make_payment_intent(
 		payment_intent_object.update(dict(customer=customer))
 
 	payment_intent = StripePaymentIntent(gateway_controller, payment_request).create(
-		amount=cint(flt(payment_request.grand_total) * 100),
+		amount=round(flt(payment_request.grand_total) * 100),
 		currency=payment_request.currency,
 		**payment_intent_object
 	)
@@ -186,43 +218,6 @@ def retry_invoice(**kwargs):
 		kwargs.get("invoiceId"), expand=["payment_intent"]
 	)
 	return invoice
-
-
-@frappe.whitelist(allow_guest=True)
-def make_subscription(**kwargs):
-	payment_request, payment_gateway = _update_payment_method(**kwargs)
-
-	subscription = frappe.get_doc("Subscription", payment_request.is_linked_to_a_subscription())
-	items = [
-		{"price": x.stripe_plan, "quantity": x.qty}
-		for x in subscription.plans
-		if x.stripe_plan and x.status == "Active"
-	]
-
-	data = dict(
-		items=items,
-		expand=["latest_invoice.payment_intent"],
-		metadata={"reference_doctype": subscription.doctype, "reference_name": subscription.name},
-	)
-
-	if subscription.trial_period_end:
-		data.update({"trial_end": int(datetime.timestamp(get_datetime(subscription.trial_period_end)))})
-
-	if getdate(subscription.start) < getdate(nowdate()):
-		data.update(
-			{
-				"backdate_start_date": int(datetime.timestamp(get_datetime(subscription.start))),
-				"billing_cycle_anchor": int(
-					datetime.timestamp(get_datetime(SubscriptionPeriod(subscription).get_next_invoice_date()))
-				),
-			}
-		)
-	else:
-		data.update({"proration_behavior": "none"})
-
-	return StripeSubscription(payment_gateway).create(
-		subscription.name, kwargs.get("customerId"), **data
-	)
 
 
 def _update_payment_method(**kwargs):

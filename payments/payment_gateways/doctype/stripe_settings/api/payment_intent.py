@@ -3,23 +3,18 @@ from payments.payment_gateways.doctype.stripe_settings.idempotency import Idempo
 
 
 class StripePaymentIntent:
-	def __init__(self, gateway, payment_request):
+	def __init__(self, gateway, reference=None):
 		self.gateway = gateway
-		self.payment_request = payment_request
+		self.reference = reference
 
 	@handle_idempotency
-	@handle_stripe_errors
 	def create(self, amount, currency, **kwargs):
 		return self.gateway.stripe.PaymentIntent.create(
 			amount=amount,
 			currency=currency,
-			idempotency_key=IdempotencyKey("payment_intent", "create", self.payment_request.name).get(),
+			idempotency_key=IdempotencyKey("payment_intent", "create", self.reference).get(),
 			**kwargs
 		)
-
-	@handle_stripe_errors
-	def retrieve(self, id, client_secret):
-		return self.gateway.stripe.PaymentIntent.retrieve(id, client_secret=client_secret)
 
 	@handle_stripe_errors
 	def update(self, id, **kwargs):

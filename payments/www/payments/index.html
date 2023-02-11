@@ -1,0 +1,29 @@
+{% extends "templates/web.html" %}
+
+{% block head_include %}
+<link rel="stylesheet" href="/assets/frappe/css/fonts/fontawesome/css/all.min.css">
+{% endblock %}
+
+{% block page_content %}
+<div id="payment-method-selection-page">
+	<div class="row">
+		<div class="col-12 mb-4 text-center align-self-center">
+			<h2>{{ _("Select your payment method") }}</h2>
+			<p>{{ subject }}</p>
+		</div>
+		{% for gateway in payment_gateways %}
+		<div class="col-12 mb-2 mx-auto">
+			<div class="card">
+				<div class="card-body text-center">
+					<i class="{{ gateway.icon or 'far fa-credit-card'}}"></i>
+					<h5 class="card-title my-2">{{ gateway.title or gateway.name }}</h5>
+					<button class="btn btn-primary" data-payment-gateway="{{ gateway.name }}" data-reference_doctype="{{ reference_doctype }}" data-reference_name="{{ reference_name }}">
+						{{ _("Pay") }} {{ formattedAmount }}
+					</button>
+				</div>
+			</div>
+		</div>
+		{% endfor %}
+	</div>
+</div>
+{% endblock %}

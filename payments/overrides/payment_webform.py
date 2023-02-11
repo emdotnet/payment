@@ -1,8 +1,5 @@
-import json
-
 import frappe
-from frappe.core.doctype.file import remove_file_by_url
-from frappe.rate_limiter import rate_limit
+from frappe import _
 from frappe.utils import flt
 from frappe.website.doctype.web_form.web_form import WebForm
 
@@ -15,145 +12,149 @@ class PaymentWebForm(WebForm):
 
 		if getattr(self, "accept_payment", False):
 			self.validate_payment_amount()
+			self.validate_currency()
+			self.validate_ref_doctype_fields()
+			self.clear_amount_if_fetching_from_field()
+			self.clear_currency_if_fetching_from_field()
+
+	def validate_ref_doctype_fields(self):
+		meta = frappe.get_meta(self.doc_type)
+		required_fields = ["payment_gateway", "customer"]
+		for field in required_fields:
+			if not meta.has_field(field):
+				frappe.throw(_(
+					"The selected document type ({0}) must contain a `{1}` field. This field is used to store data when the form is submitted. Required fields are: {2}"
+				).format(_(self.doc_type), field, ", ".join(required_fields)))
 
 	def validate_payment_amount(self):
+		if not self.can_require_immediate_payment():
+			return  # no need to validate amount if not accepting immediate payment
 		if self.amount_based_on_field and not self.amount_field:
-			frappe.throw(frappe._("Please select a Amount Field."))
+			frappe.throw(_("Please select a Amount Field."))
 		elif not self.amount_based_on_field and not flt(self.amount) > 0:
-			frappe.throw(frappe._("Amount must be greater than 0."))
+			frappe.throw(_("Amount must be greater than 0."))
+
+	def validate_currency(self):
+		if not self.can_require_immediate_payment():
+			return  # no need to validate currency if not accepting immediate payment
+		if self.currency_based_on_field and not self.currency_field:
+			frappe.throw(_("Please select a {0} Field.").format(_("Currency")))
+		elif not self.currency_based_on_field and not self.currency:
+			frappe.throw(_("The field {0} is mandatory").format(_("Currency")))
+
+	def clear_amount_if_fetching_from_field(self):
+		if self.amount_based_on_field:
+			self.amount = None
+
+	def clear_currency_if_fetching_from_field(self):
+		if self.currency_based_on_field:
+			self.currency = None
+
+	PAYMENT_TYPES = {
+		"Immediate payment": "immediate",
+		"Automatic payments": "offline",
+		"Initial payment followed by automatic payments": "immediate+offline",
+	}
+
+	def get_payment_type(self):
+		accept_payment = bool(self.accept_payment)
+		if not accept_payment:
+			return None
+
+		if not getattr(self, "payment_type", None):
+			return "immediate"
+
+		payment_type = self.PAYMENT_TYPES.get(self.payment_type, "immediate")
+		return payment_type
+
+	def has_payments_enabled(self, doc=None):
+		if self.get_payment_type():
+			# Legacy: could be removed in future (unused in Dokos/Dodock)
+			if doc and frappe.get_meta(doc.doctype).has_field("paid") and doc.paid:
+				return False  # document already paid
+
+			return True  # web form accepts payments
+		return False  # web form does not accept payments
+
+	def webform_validate_doc(self, doc):
+		if not self.has_payments_enabled(doc):
+			return super().webform_validate_doc(doc)
+
+		# Set payment gateway
+		meta = frappe.get_meta(doc.doctype)
+		if meta.has_field("payment_gateway"):
+			doc.payment_gateway = self.payment_gateway
+
+		# Partially validate document
+		doc.flags.in_payment_webform = True
+		super().webform_validate_doc(doc)
+
+		doc.run_method("validate_payment")
+
+	def webform_accept_doc(self, doc):
+		if not self.has_payments_enabled(doc):
+			return super().webform_accept_doc(doc)
+
+		# Accept document
+		doc.flags.in_payment_webform = True
+		super().webform_accept_doc(doc)
+
+		# Redirect to payment page
+		redirect_url: str = self.get_payment_gateway_url(doc)
+		return { "redirect": redirect_url }
+
+	def get_currency(self, doc):
+		if self.currency_based_on_field:
+			return doc.get(self.currency_field)
+		return self.currency
+
+	def get_amount(self, doc):
+		if self.amount_based_on_field:
+			return doc.get(self.amount_field)
+		return self.amount
+
+	def can_require_immediate_payment(self):
+		payment_type = self.get_payment_type()
+		return payment_type in ("immediate", "immediate+offline")
 
 	def get_payment_gateway_url(self, doc):
-		if getattr(self, "accept_payment", False):
-			controller = get_payment_gateway_controller(self.payment_gateway)
+		payment_type = self.get_payment_type()
+		if not payment_type:
+			return None
 
-			title = f"Payment for {doc.doctype} {doc.name}"
-			amount = self.amount
-			if self.amount_based_on_field:
-				amount = doc.get(self.amount_field)
+		controller = get_payment_gateway_controller(self.payment_gateway)
+
+		# Get title
+		if payment_type == "offline":
+			title = _("Setup automatic payments for {0} {1}").format(_(doc.doctype), doc.name)
+		else:
+			title = _("Payment for {0} {1}").format(_(doc.doctype), doc.name)
+
+		# Get amount and check it is valid
+		will_pay_immediately = self.can_require_immediate_payment()
+		amount = None
+		currency = None
+		if will_pay_immediately:
+			amount = self.get_amount(doc)
+			currency = self.get_currency(doc)
 
 			from decimal import Decimal
-
 			if amount is None or Decimal(amount) <= 0:
 				return frappe.utils.get_url(self.success_url or self.route)
 
-			payment_details = {
-				"amount": amount,
-				"title": title,
-				"description": title,
-				"reference_doctype": doc.doctype,
-				"reference_docname": doc.name,
-				"webform": self.name,
-				"payer_email": frappe.session.user,
-				"payer_name": frappe.utils.get_fullname(frappe.session.user),
-				"order_id": doc.name,
-				"currency": self.currency,
-				"redirect_to": frappe.utils.get_url(self.success_url or self.route),
-			}
+		payment_details = {
+			"_payment_type": payment_type,
+			"amount": amount,
+			"title": title,
+			"description": title,
+			"reference_doctype": doc.doctype,
+			"reference_docname": doc.name,
+			"payer_email": doc.get("email") or frappe.session.user,
+			"payer_name": doc.get("full_name") or frappe.utils.get_fullname(frappe.session.user),
+			"order_id": doc.name,
+			"currency": currency,
+			"redirect_to": frappe.utils.get_url(self.success_url or self.route),
+		}
 
-			# Redirect the user to this url
-			return controller.get_payment_url(**payment_details)
-
-
-@frappe.whitelist(allow_guest=True)
-@rate_limit(key="web_form", limit=5, seconds=60, methods=["POST"])
-def accept(web_form, data, docname=None, for_payment=False):
-	"""Save the web form"""
-	data = frappe._dict(json.loads(data))
-	for_payment = frappe.parse_json(for_payment)
-
-	files = []
-	files_to_delete = []
-
-	web_form = frappe.get_doc("Web Form", web_form)
-
-	if data.name and not web_form.allow_edit:
-		frappe.throw(frappe._("You are not allowed to update this Web Form Document"))
-
-	frappe.flags.in_web_form = True
-	meta = frappe.get_meta(data.doctype)
-
-	if docname:
-		# update
-		doc = frappe.get_doc(data.doctype, docname)
-	else:
-		# insert
-		doc = frappe.new_doc(data.doctype)
-
-	# set values
-	for field in web_form.web_form_fields:
-		fieldname = field.fieldname
-		df = meta.get_field(fieldname)
-		value = data.get(fieldname, None)
-
-		if df and df.fieldtype in ("Attach", "Attach Image"):
-			if value and "data:" and "base64" in value:
-				files.append((fieldname, value))
-				if not doc.name:
-					doc.set(fieldname, "")
-				continue
-
-			elif not value and doc.get(fieldname):
-				files_to_delete.append(doc.get(fieldname))
-
-		doc.set(fieldname, value)
-
-	if for_payment:
-		web_form.validate_mandatory(doc)
-		doc.run_method("validate_payment")
-
-	if doc.name:
-		if web_form.has_web_form_permission(doc.doctype, doc.name, "write"):
-			doc.save(ignore_permissions=True)
-		else:
-			# only if permissions are present
-			doc.save()
-
-	else:
-		# insert
-		if web_form.login_required and frappe.session.user == "Guest":
-			frappe.throw(frappe._("You must login to submit this form"))
-
-		ignore_mandatory = True if files else False
-
-		doc.insert(ignore_permissions=True, ignore_mandatory=ignore_mandatory)
-
-	# add files
-	if files:
-		for f in files:
-			fieldname, filedata = f
-
-			# remove earlier attached file (if exists)
-			if doc.get(fieldname):
-				remove_file_by_url(doc.get(fieldname), doctype=doc.doctype, name=doc.name)
-
-			# save new file
-			filename, dataurl = filedata.split(",", 1)
-			_file = frappe.get_doc(
-				{
-					"doctype": "File",
-					"file_name": filename,
-					"attached_to_doctype": doc.doctype,
-					"attached_to_name": doc.name,
-					"content": dataurl,
-					"decode": True,
-				}
-			)
-			_file.save()
-
-			# update values
-			doc.set(fieldname, _file.file_url)
-
-		doc.save(ignore_permissions=True)
-
-	if files_to_delete:
-		for f in files_to_delete:
-			if f:
-				remove_file_by_url(f, doctype=doc.doctype, name=doc.name)
-
-	frappe.flags.web_form_doc = doc
-
-	if for_payment:
-		# this is needed for Payments app
-		return web_form.get_payment_gateway_url(doc)
-	else:
-		return doc
+		# Redirect the user to this url
+		return controller.get_payment_url(**payment_details)

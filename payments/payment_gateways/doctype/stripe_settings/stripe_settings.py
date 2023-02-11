@@ -7,12 +7,10 @@ from urllib.parse import urlencode
 import frappe
 import stripe
 from frappe import _
-from frappe.integrations.utils import PaymentGatewayController
-from frappe.utils import call_hook_method, cint, flt, get_url, getdate, nowdate
+from payments.utils.utils import PaymentGatewayController
+from frappe.utils import call_hook_method, flt, get_url, check_format
 from payments.utils import create_payment_gateway
 
-# TODO: Move to hook
-from erpnext.accounts.doctype.subscription.subscription_state_manager import SubscriptionPeriod
 from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripeCustomer,
 	StripeInvoiceItem,
@@ -20,12 +18,10 @@ from payments.payment_gateways.doctype.stripe_settings.api import (
 	StripePrice,
 	StripeWebhookEndpoint,
 )
-from payments.payment_gateways.doctype.stripe_settings.webhook_events import (
-	StripeChargeWebhookHandler,
-	StripeInvoiceWebhookHandler,
-	StripePaymentIntentWebhookHandler,
-)
+from payments.payment_gateways.doctype.stripe_settings.stripe_data_handler import StripeDataHandler
+from payments.payment_gateways.doctype.stripe_settings.webhook_events import StripeWebhooksController, StripeSetupWebhooksController
 
+WEBHOOK_ENDPOINT = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
 
 class StripeSettings(PaymentGatewayController):
 	currency_wise_minimum_charge_amount = {
@@ -46,14 +42,6 @@ class StripeSettings(PaymentGatewayController):
 		"SGD": 0.50,
 	}
 
-	enabled_events = [
-		"payment_intent.created",
-		"payment_intent.canceled",
-		"payment_intent.payment_failed",
-		"payment_intent.processing",
-		"payment_intent.succeeded",
-	]
-
 	def __init__(self, *args, **kwargs):
 		super(StripeSettings, self).__init__(*args, **kwargs)
 		if not self.is_new():
@@ -61,6 +49,10 @@ class StripeSettings(PaymentGatewayController):
 
 	def before_insert(self):
 		self.gateway_name = frappe.scrub(self.gateway_name)
+
+	def validate(self):
+		if self.name:
+			self.webhook_url = f"{frappe.utils.get_url(WEBHOOK_ENDPOINT)}{self.name}"
 
 	def configure_stripe(self):
 		self.stripe = stripe
@@ -108,31 +100,6 @@ class StripeSettings(PaymentGatewayController):
 					)
 				)
 
-	def validate_payment_request(self, payment_request):
-		subscription = payment_request.get_linked_subscription()
-		if not subscription or not self.subscription_cycle_on_stripe:
-			return
-
-		self.validate_subscription_lines(subscription)
-		self.validate_next_invoice_date(subscription)
-
-	def validate_subscription_lines(self, subscription):
-		total = 0
-		for plan in subscription.plans:
-			if plan.stripe_plan:
-				p = self.get_stripe_plan(plan.stripe_plan, subscription.currency)
-				total += flt(p.unit_amount) / 100
-			elif plan.stripe_invoice_item:
-				i = self.get_stripe_invoice_item(plan.stripe_invoice_item, subscription.currency)
-				total += flt(i.price.unit_amount) / 100
-
-		if total != subscription.total:
-			frappe.msgprint(
-				_(
-					"The total billed by Stripe ({0}) will be different from the total in your subscription ({1})."
-				).format(total, subscription.total)
-			)
-
 	def get_stripe_plan(self, plan, currency):
 		try:
 			stripe_plan = StripePrice(self).retrieve(plan)
@@ -161,21 +128,30 @@ class StripeSettings(PaymentGatewayController):
 		except stripe.error.InvalidRequestError:
 			frappe.throw(_("Invalid currency for invoice item: {0} - {1}").format(item, currency))
 
-	def validate_next_invoice_date(self, subscription):
-		next_invoice_date = SubscriptionPeriod(subscription).get_next_invoice_date()
-		if getdate(next_invoice_date) < getdate(nowdate()):
-			frappe.throw(
-				_(
-					"The next invoice date for this subscription is in the past and can not be billed with Stripe."
-				)
-			)
+	def get_stripe_mode_from_payment_type(self, payment_type):
+		if payment_type == "immediate":
+			return "payment"
+		elif payment_type == "offline":
+			return "setup"
+		elif payment_type == "immediate+offline":
+			return "payment+setup"
+		else:
+			frappe.throw(_("Invalid payment type: {0}").format(payment_type))
 
 	def get_payment_url(self, **kwargs):
-		payment_key = {"key": kwargs.get("payment_key")}
+		data = kwargs
+
+		if not data.get("_legacy", None):
+			try:
+				if payment_type := data.get("_payment_type"):
+					data["mode"] = self.get_stripe_mode_from_payment_type(payment_type)
+					del data["_payment_type"]
+				data = StripeDataHandler.generate_query_params(self, data)
+			except Exception:
+				frappe.log_error("Warning: Stripe URL generation failure - Falling back to legacy method", frappe.get_traceback())
+
 		return get_url(
-			"./stripe_checkout?{0}".format(
-				urlencode(kwargs) if not kwargs.get("payment_key") else urlencode(payment_key)
-			)
+			"./stripe_checkout?{0}".format(urlencode(data))
 		)
 
 	def cancel_subscription(self, **kwargs):
@@ -187,87 +163,141 @@ class StripeSettings(PaymentGatewayController):
 			prorate=kwargs.get("prorate", False),
 		)
 
-	def can_make_immediate_payment(self, payment_request):
-		if self.subscription_cycle_on_stripe:
-			return False
-
-		customer = payment_request.get_customer()
-		if not customer:
-			return
-
-		stripe_customer_id = frappe.db.get_value(
+	def get_stripe_customer_id(self, customer):
+		return frappe.db.get_value(
 			"Integration References",
 			dict(customer=customer, stripe_settings=self.name),
 			"stripe_customer_id",
 		)
 
-		if stripe_customer_id:
-			stripe_customer = StripeCustomer(self).get(stripe_customer_id)
-			return bool(stripe_customer.get("default_source")) or bool(
-				stripe_customer.get("invoice_settings", {}).get("default_payment_method")
-			)
-
-		return False
-
-	def immediate_payment_processing(self, payment_request):
-		if not self.can_make_immediate_payment(payment_request):
-			return
-
+	def immediate_payment_processing(self, reference, customer, amount, currency, description, metadata):
 		try:
-			customer = payment_request.get_customer()
-			stripe_customer_id = frappe.db.get_value(
-				"Integration References",
-				dict(customer=customer, stripe_settings=self.name),
-				"stripe_customer_id",
-			)
-
-			payment_intent = (
-				StripePaymentIntent(self, payment_request).create(
-					amount=cint(flt(payment_request.grand_total, payment_request.precision("grand_total")) * 100),
-					description=payment_request.subject,
-					currency=payment_request.currency,
-					customer=stripe_customer_id,
-					confirm=True,
-					off_session=True,
-					metadata={
-						"reference_doctype": payment_request.reference_doctype,
-						"reference_name": payment_request.reference_name,
-						"payment_request": payment_request.name,
-					},
-					payment_method=StripeCustomer(self)
-					.get(stripe_customer_id)
-					.get("invoice_settings", {})
-					.get("default_payment_method"),
-				)
-				or {}
-			)
-
-			return payment_intent.get("id")
-
+			stripe_customer_id = self.get_stripe_customer_id(customer)
+			payment_intent_id = self.create_payment_intent(reference, stripe_customer_id, amount, currency, description, metadata)
+			return payment_intent_id
 		except Exception:
 			frappe.log_error(
-				_("Stripe direct processing failed for {0}".format(payment_request.name)),
+				_("Stripe direct processing failed for {0}".format(reference)),
+				message=frappe.get_traceback(),
+				reference_doctype=isinstance(metadata, dict) and metadata.get("reference_doctype"),
+				reference_name=isinstance(metadata, dict) and metadata.get("reference_name"),
 			)
+
+	def create_payment_intent(self, reference, customer, amount, currency, description, metadata):
+		payment_method = StripeCustomer(self).get(customer).get("invoice_settings", {}).get("default_payment_method")
+		statement_descriptor = str(reference)[:22]
+
+		payment_intent = (
+			StripePaymentIntent(self, reference).create(
+				amount=round(flt(amount) * 100.0),
+				description=description,
+				currency=currency,
+				customer=customer,
+				confirm=True,
+				off_session=True,
+				metadata=metadata,
+				payment_method=payment_method,
+				statement_descriptor=statement_descriptor
+			)
+			or {}
+		)
+
+		self.trigger_on_payment_authorized(metadata, payment_intent.get("id"))
+
+		return payment_intent.get("id")
+
+	def make_line_item(self, amount, currency, description):
+		return {
+			"price_data": {
+				"currency": currency,
+				"product_data": {
+					"name": description,
+				},
+				"unit_amount": round(flt(amount) * 100.0),
+			},
+			"quantity": 1,
+		}
+
+	def create_payment_checkout_session(self, *, customer, customer_email, item, redirect_urls, metadata, also_setup_future_usage=False):
+		payment_intent_data = { "metadata": metadata }
+		more_options = {}
+
+		if also_setup_future_usage:
+			payment_intent_data["setup_future_usage"] = "off_session"
+			# more_options["customer_creation"] = "required"
+			# more_options["consent_collection"] = { "terms_of_service": "required" }
+			custom_text = _("This payment method will be used for subsequent recurring payments.")
+			more_options["custom_text"] = {"submit": {"message": custom_text}}
+			if not customer:
+				raise ValueError("The `customer` parameter is required with also_setup_future_usage=True")
+		else:
+			if not customer and check_format(customer_email):
+				more_options["customer_email"] = customer_email
+
+		checkout_session = stripe.checkout.Session.create(
+			mode="payment",
+			customer=customer,
+			metadata=metadata,
+			line_items=[self.make_line_item(**item)],
+			payment_intent_data=payment_intent_data,
+			success_url=get_url(redirect_urls["success"]),
+			cancel_url=get_url(redirect_urls["cancel"]),
+			**more_options,
+		)
+
+		# NOTE: A PaymentIntent is no longer created during Checkout Session creation in payment mode.
+		# https://stripe.com/docs/upgrades#2022-08-01
+		self.trigger_on_payment_authorized(metadata, payment_intent=None)
+		return checkout_session
+
+	def create_setup_checkout_session(self, *, customer, redirect_urls, metadata, payment_method_types=["card", "sepa_debit"]):
+		checkout_session = stripe.checkout.Session.create(
+			mode="setup",
+			customer=customer,
+			metadata=metadata,
+			setup_intent_data={"metadata": metadata},
+			payment_method_types=payment_method_types,
+			success_url=get_url(redirect_urls["success"]),
+			cancel_url=get_url(redirect_urls["cancel"]),
+		)
+		return checkout_session
+
+	def trigger_on_payment_authorized(self, metadata, payment_intent=None):
+		if metadata.get("reference_doctype") and (metadata.get("reference_name") or metadata.get("reference_docname")):
+			reference_document = frappe.get_doc(metadata.get("reference_doctype"), (metadata.get("reference_name") or metadata.get("reference_docname")))
+			reference_document.run_method("on_payment_authorized", "Pending", payment_intent)
+
+	def get_transaction_fees(self, payment_intent):
+		stripe_payment_intent_object = self.stripe.PaymentIntent.retrieve(payment_intent, expand=['latest_charge.balance_transaction'])
+		return frappe._dict(
+			base_amount = flt(stripe_payment_intent_object.latest_charge.amount) / 100.0,
+			fee_amount = flt(stripe_payment_intent_object.latest_charge.balance_transaction.fee) / 100.0,
+			exchange_rate = flt(stripe_payment_intent_object.latest_charge.balance_transaction.exchange_rate)
+		)
+
+	def get_customer_id(self, payment_intent):
+		stripe_payment_intent_object = self.stripe.PaymentIntent.retrieve(payment_intent)
+		if stripe_payment_intent_object:
+			return stripe_payment_intent_object.customer
+		else:
+			return None
 
 
 def handle_webhooks(**kwargs):
-	# TODO: Refactor implementation
-	from erpnext.erpnext_integrations.webhooks_controller import handle_webhooks as _handle_webhooks
+	integration_request = frappe.get_doc(kwargs.get("doctype"), kwargs.get("docname"))
 
-	WEBHOOK_HANDLERS = {
-		"charge": StripeChargeWebhookHandler,
-		"payment_intent": StripePaymentIntentWebhookHandler,
-		"invoice": StripeInvoiceWebhookHandler,
-	}
-
-	_handle_webhooks(WEBHOOK_HANDLERS, **kwargs)
+	if integration_request.service_document in ["charge", "payment_intent", "invoice", "checkout"]:
+		StripeWebhooksController(**kwargs)
+	elif integration_request.service_document in ["setup_intent"]:
+		StripeSetupWebhooksController(**kwargs)
+	else:
+		integration_request.handle_failure({"message": _("This type of event is not handled")}, "Not Handled")
 
 
 @frappe.whitelist()
 def create_delete_webhooks(settings, action="create"):
 	stripe_settings = frappe.get_doc("Stripe Settings", settings)
-	endpoint = "/api/method/payments.payment_gateways.doctype.stripe_settings.webhooks?account="
-	url = f"{frappe.utils.get_url(endpoint)}{stripe_settings.name}"
+	url = f"{frappe.utils.get_url(WEBHOOK_ENDPOINT)}{stripe_settings.name}"
 
 	if action == "create":
 		return create_webhooks(stripe_settings, url)
@@ -276,8 +306,18 @@ def create_delete_webhooks(settings, action="create"):
 
 
 def create_webhooks(stripe_settings, url):
+	webhook_controllers: list = [
+		StripeWebhooksController,
+		StripeSetupWebhooksController,
+	]
+	enabled_events: set[str] = set()
+	for controller_cls in webhook_controllers:
+		# TODO: Maybe throw if duplicate events are added
+		enabled_events.update(controller_cls.get_handled_events())
+	enabled_events = list(sorted(enabled_events))
+
 	try:
-		result = StripeWebhookEndpoint(stripe_settings).create(url, stripe_settings.enabled_events)
+		result = StripeWebhookEndpoint(stripe_settings).create(url, enabled_events)
 		if result:
 			frappe.db.set_value(
 				"Stripe Settings", stripe_settings.name, "webhook_secret_key", result.get("secret")
@@ -300,9 +340,3 @@ def delete_webhooks(stripe_settings, url):
 
 	return webhooks_list
 
-def get_gateway_controller(doctype, docname):
-	reference_doc = frappe.get_doc(doctype, docname)
-	gateway_controller = frappe.db.get_value(
-		"Payment Gateway", reference_doc.payment_gateway, "gateway_controller"
-	)
-	return gateway_controller
