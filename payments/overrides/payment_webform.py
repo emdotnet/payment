@@ -57,7 +57,7 @@ class PaymentWebForm(WebForm):
 	}
 
 	def get_payment_type(self):
-		accept_payment = bool(self.accept_payment)
+		accept_payment = getattr(self, "accept_payment", False)
 		if not accept_payment:
 			return None
 
