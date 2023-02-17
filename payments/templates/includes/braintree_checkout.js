@@ -8,7 +8,7 @@ const threeDSecureParameters = {
 
 braintree.dropin.create({
 	authorization: "{{ client_token }}",
-	selector: '#dropin-container',
+	selector: '#bt-dropin',
 	threeDSecure: true,
 	paypal: {
 		flow: 'vault'
@@ -47,7 +47,7 @@ braintree.dropin.create({
 
 const submitPayment = payload => {
 	frappe.call({
-		method: "frappe.templates.pages.integrations.braintree_checkout.make_payment",
+		method: "payments.templates.pages.braintree_checkout.make_payment",
 		freeze: true,
 		headers: { "X-Requested-With": "XMLHttpRequest" },
 		args: {
