@@ -1,11 +1,9 @@
 # Copyright (c) 2021, Frappe Technologies Pvt. Ltd. and Contributors
 # License: MIT. See LICENSE
 
-import json
-
 import frappe
 from frappe import _
-from payments.payment_gateways.doctype.braintree_settings.braintree_settings  import get_gateway_controller
+from payments.payment_gateways.doctype.braintree_settings.braintree_settings import get_gateway_controller
 from frappe.utils import fmt_money
 
 EXPECTED_KEYS = (

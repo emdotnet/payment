@@ -314,9 +314,9 @@ class BraintreeSettings(PaymentGatewayController):
 
 		return {"redirect_to": redirect_url, "status": status}
 
-def get_gateway_controller(doc):
-	payment_request = frappe.get_doc("Payment Request", doc)
+def get_gateway_controller(doctype, doc):
+	reference_document = frappe.get_doc(doctype, doc)
 	gateway_controller = frappe.db.get_value(
-		"Payment Gateway", payment_request.payment_gateway, "gateway_controller"
+		"Payment Gateway", reference_document.payment_gateway, "gateway_controller"
 	)
 	return gateway_controller
