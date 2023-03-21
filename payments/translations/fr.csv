@@ -1,0 +1,1 @@
+"The selected document type ({0}) must contain a `{1}` field. This field is used to store data when the form is submitted. Required fields are: {2}","Le type de document sélectionné ({0}) doit contenir un champ `{1}`. Ce champ est utilisé pour enregistrer les données lors de l'envoi du formulaire. Les champs obligatoires sont : {2}",
