@@ -197,6 +197,7 @@ class StripeSettings(PaymentGatewayController):
 				off_session=True,
 				metadata=metadata,
 				payment_method=payment_method,
+				payment_method_types=["card", "sepa_debit"],
 				statement_descriptor=statement_descriptor
 			)
 			or {}
