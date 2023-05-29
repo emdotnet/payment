@@ -20,7 +20,9 @@
   "failure_redirect_url",
   "bank_section",
   "bank_account",
-  "settings_section"
+  "enabled_payment_methods_tab",
+  "card",
+  "sepa_debit"
  ],
  "fields": [
   {
@@ -87,11 +89,6 @@
    "label": "Failure redirect URL"
   },
   {
-   "fieldname": "settings_section",
-   "fieldtype": "Section Break",
-   "label": "Settings"
-  },
-  {
    "fieldname": "redirection_section",
    "fieldtype": "Section Break",
    "label": "Redirection"
@@ -101,11 +98,29 @@
    "fieldtype": "Data",
    "label": "Webhook URL",
    "read_only": 1
+  },
+  {
+   "description": "These payment methods must also be enabled in your Stripe dashboard",
+   "fieldname": "enabled_payment_methods_tab",
+   "fieldtype": "Tab Break",
+   "label": "Enabled Payment Methods"
+  },
+  {
+   "default": "1",
+   "fieldname": "card",
+   "fieldtype": "Check",
+   "label": "Card"
+  },
+  {
+   "default": "0",
+   "fieldname": "sepa_debit",
+   "fieldtype": "Check",
+   "label": "Sepa Direct Debit"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2023-02-02 10:24:46.275376",
+ "modified": "2023-05-23 16:34:28.388559",
  "modified_by": "Administrator",
  "module": "Payment Gateways",
  "name": "Stripe Settings",

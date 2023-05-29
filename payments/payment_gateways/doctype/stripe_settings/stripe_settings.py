@@ -8,7 +8,7 @@ import frappe
 import stripe
 from frappe import _
 from payments.utils.utils import PaymentGatewayController
-from frappe.utils import call_hook_method, flt, get_url, check_format
+from frappe.utils import call_hook_method, flt, get_url, check_format, cint
 from payments.utils import create_payment_gateway
 
 from payments.payment_gateways.doctype.stripe_settings.api import (
@@ -66,6 +66,14 @@ class StripeSettings(PaymentGatewayController):
 		]
 
 		return [currency.upper() for currency in supported_payment_currencies]
+
+	def get_supported_payment_methods(self):
+		payment_methods = []
+		for field in ["card", "sepa_debit"]:
+			if cint(self.get(field)):
+				payment_methods.append(field)
+
+		return payment_methods
 
 	def on_update(self):
 		create_payment_gateway(
@@ -197,7 +205,7 @@ class StripeSettings(PaymentGatewayController):
 				off_session=True,
 				metadata=metadata,
 				payment_method=payment_method,
-				payment_method_types=["card", "sepa_debit"],
+				payment_method_types=self.get_supported_payment_methods(),
 				statement_descriptor=statement_descriptor
 			)
 			or {}
@@ -241,6 +249,7 @@ class StripeSettings(PaymentGatewayController):
 			metadata=metadata,
 			line_items=[self.make_line_item(**item)],
 			payment_intent_data=payment_intent_data,
+			payment_method_types=self.get_supported_payment_methods(),
 			success_url=get_url(redirect_urls["success"]),
 			cancel_url=get_url(redirect_urls["cancel"]),
 			**more_options,
@@ -251,7 +260,10 @@ class StripeSettings(PaymentGatewayController):
 		self.trigger_on_payment_authorized(metadata, payment_intent=None)
 		return checkout_session
 
-	def create_setup_checkout_session(self, *, customer, redirect_urls, metadata, payment_method_types=["card", "sepa_debit"]):
+	def create_setup_checkout_session(self, *, customer, redirect_urls, metadata, payment_method_types=None):
+		if not payment_method_types:
+			payment_method_types = self.get_supported_payment_methods()
+
 		checkout_session = stripe.checkout.Session.create(
 			mode="setup",
 			customer=customer,
