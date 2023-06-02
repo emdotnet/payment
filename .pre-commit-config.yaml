@@ -20,7 +20,7 @@ repos:
       - id: check-yaml
       - id: debug-statements
       - id: pretty-format-json
-        args: ['--no-sort-keys', '--no-ensure-ascii', '--autofix']
+        args: ['--no-sort-keys', '--no-ensure-ascii', '--autofix', '--indent=1']
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v2.34.0
