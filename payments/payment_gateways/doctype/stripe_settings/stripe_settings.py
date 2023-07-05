@@ -54,8 +54,12 @@ class StripeSettings(PaymentGatewayController):
 		if self.name:
 			self.webhook_url = f"{frappe.utils.get_url(WEBHOOK_ENDPOINT)}{self.name}"
 
+	@property
+	def stripe(self):
+		"""stripe is moved to property because it would be pickled by frappe.get_cached_doc"""
+		return stripe
+
 	def configure_stripe(self):
-		self.stripe = stripe
 		self.stripe.api_key = self.get_password(fieldname="secret_key", raise_exception=False)
 		self.stripe.default_http_client = stripe.http_client.RequestsClient()
 
