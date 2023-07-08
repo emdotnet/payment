@@ -473,7 +473,7 @@ def order_payment_failure(integration_request, params):
 	        integration_request (TYPE): Description
 	        params (TYPE): error data to be updated
 	"""
-	frappe.log_error(params, "Razorpay Payment Failure")
+	frappe.log_error(repr(params), "Razorpay Payment Failure")
 	params = json.loads(params)
 	integration = frappe.get_doc("Integration Request", integration_request)
 	integration.update_status(params, integration.status)
