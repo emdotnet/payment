@@ -44,10 +44,11 @@ class TestToken(unittest.TestCase):
 		self.assertEqual(th.get_secret(), "my-test-secret")
 
 		token = th._encode_to_token(raw_data)
-		self.assertEqual(
-			token,
-			"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJtb2RlIjoidGVzdCIsImtleTEiOiJ2YWx1ZTEiLCJrZXkyIjoidmFsdWUyIn0.os8OQd6PP9yhN3yU-ufI8gVqIk_cbFZsySPQbwWt5Ms"
-		)
+		# cannot assert full string, as it only works with deterministic json key order
+		# self.assertEqual(
+		# 	token,
+		# 	"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJtb2RlIjoidGVzdCIsImtleTEiOiJ2YWx1ZTEiLCJrZXkyIjoidmFsdWUyIn0.os8OQd6PP9yhN3yU-ufI8gVqIk_cbFZsySPQbwWt5Ms"
+		# )
 
 		decoded = th._decode_from_token(token)
 		self.assertDictEqual(decoded, raw_data)

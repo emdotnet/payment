@@ -70,7 +70,7 @@ unittests:
     - dpkg -i wkhtmltox_0.12.6-1.buster_amd64.deb && rm wkhtmltox_0.12.6-1.buster_amd64.deb
     - rm -rf /var/lib/apt/lists/*
     - rm -rf /etc/apt/sources.list.d/*
-    - curl -sL https://deb.nodesource.com/setup_16.x | bash
+    - curl -sL https://deb.nodesource.com/setup_18.x | bash
     - apt-get install -y nodejs
     - npm install --global yarn
     - export PATH=$PATH:/home/dokotest/.local/bin
